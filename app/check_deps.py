@@ -1,13 +1,17 @@
 """
-Smart dependency checker.
-1. Runs uv pip install only when requirements.txt hash changed.
-2. Verifies torch loads correctly — if CUDA DLL fails on Windows,
-   auto-reinstalls CPU-only torch so the app still starts.
+Smart dependency checker — called by start.js before every launch.
+
+1. Compares requirements.txt MD5 hash with stored .req_hash
+   → runs uv pip install only when something changed
+2. Torch smoke test — if CUDA DLL fails, auto-installs CPU torch
 """
 import hashlib
 import pathlib
 import subprocess
 import sys
+
+CPU_INDEX = "https://download.pytorch.org/whl/cpu"
+CPU_PKGS  = ["torch==2.7.0", "torchvision==0.22.0", "torchaudio==2.7.0"]
 
 # ── 1. Requirements hash check ────────────────────────────────
 req   = pathlib.Path("requirements.txt")
@@ -18,9 +22,9 @@ stored  = hfile.read_text().strip() if hfile.exists() else ""
 
 if current != stored:
     print("📦 requirements.txt changed — updating dependencies...")
-    result = subprocess.run(["uv", "pip", "install", "-r", "requirements.txt"])
-    if result.returncode != 0:
-        print("❌ Dependency install failed. Check output above.")
+    r = subprocess.run(["uv", "pip", "install", "-r", "requirements.txt"])
+    if r.returncode != 0:
+        print("❌ Dependency install failed.")
         sys.exit(1)
     hfile.write_text(current)
     print("✅ Dependencies updated.")
@@ -30,22 +34,28 @@ else:
 # ── 2. Torch smoke test ───────────────────────────────────────
 print("🔍 Verifying torch...")
 try:
-    import torch  # noqa: F401
-    print(f"✅ torch {torch.__version__} loaded OK")
-except OSError as e:
-    print(f"⚠️  torch CUDA DLL error: {e}")
-    print("🔄 Reinstalling CPU-only torch...")
-    result = subprocess.run([
-        "uv", "pip", "install",
-        "torch", "torchvision",
-        "--index-url", "https://download.pytorch.org/whl/cpu",
-        "--force-reinstall"
-    ])
-    if result.returncode == 0:
-        # Reset hash so next start re-checks deps
-        hfile.write_text("")
-        print("✅ CPU-only torch installed. Restart will be clean.")
+    import torch
+    if torch.cuda.is_available():
+        dev = f"cuda ({torch.cuda.get_device_name(0)})"
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        dev = "mps (Apple Silicon)"
     else:
-        print("❌ Could not reinstall torch. The app will run without GPU.")
-except ImportError as e:
-    print(f"⚠️  torch not installed yet: {e} — will install on first use.")
+        dev = "cpu"
+    print(f"✅ torch {torch.__version__} | {dev}")
+
+except OSError as e:
+    print(f"⚠️  CUDA DLL error: {e}")
+    print("🔄 Reinstalling CPU-only torch...")
+    r = subprocess.run([
+        "uv", "pip", "install", *CPU_PKGS,
+        "--index-url", CPU_INDEX,
+        "--force-reinstall", "--no-deps"
+    ])
+    if r.returncode == 0:
+        hfile.write_text("")        # force dep re-check next start
+        print("✅ CPU-only torch installed. Relaunching cleanly...")
+    else:
+        print("❌ Could not reinstall torch. App will run without GPU.")
+
+except ImportError:
+    print("⚠️  torch not installed — will install via verify_torch.py on next install.")
