@@ -29,6 +29,9 @@ app/logs/
 # Smart dep checker hash (auto-generated at runtime)
 .req_hash
 
+# User settings (persisted locally, not shared)
+lc_settings.json
+
 # Temp files
 *.tmp
 *.temp
