@@ -25,6 +25,13 @@ module.exports = {
         path: "app",
         message: ["python smart.py torch"]
       }
+    },
+    // Step 4: Auto-start after install completes
+    {
+      method: "script.start",
+      params: {
+        uri: "start.js"
+      }
     }
   ]
 }
