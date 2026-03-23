@@ -631,7 +631,7 @@ def build_app():
                             )
                         up_btn = gr.Button("🚀 Upscale Photo", variant="primary")
                     with gr.Column(scale=1):
-                        up_out = gr.Image(label="Upscaled Result", height=380)
+                        up_out = gr.Image(label="Upscaled Result", height=380, interactive=False)
                         up_status = gr.Markdown(value="", elem_classes=["lc-status"])
 
                 up_btn.click(
@@ -657,7 +657,7 @@ def build_app():
                             )
                         vid_btn = gr.Button("🚀 Upscale Video", variant="primary")
                     with gr.Column(scale=1):
-                        vid_out = gr.Video(label="Upscaled Video")
+                        vid_out = gr.Video(label="Upscaled Video", interactive=False)
                         vid_status = gr.Markdown(value="", elem_classes=["lc-status"])
 
                 vid_btn.click(
@@ -698,7 +698,7 @@ def build_app():
                         bg_option.change(toggle_custom, bg_option, bg_custom)
 
                     with gr.Column(scale=1):
-                        bg_out = gr.Image(label="Result", height=340)
+                        bg_out = gr.Image(label="Result", height=340, interactive=False)
                         bg_status = gr.Markdown(value="", elem_classes=["lc-status"])
 
                 bg_btn.click(
@@ -719,7 +719,7 @@ def build_app():
                         enh_bg = gr.Checkbox(value=True, label="Also enhance background (Real-ESRGAN)")
                         enh_btn = gr.Button("🚀 Enhance Image", variant="primary")
                     with gr.Column(scale=1):
-                        enh_out = gr.Image(label="Enhanced Result", height=340)
+                        enh_out = gr.Image(label="Enhanced Result", height=340, interactive=False)
                         enh_status = gr.Markdown(value="", elem_classes=["lc-status"])
 
                 enh_btn.click(
@@ -752,7 +752,7 @@ def build_app():
                         )
                         res_btn = gr.Button("📐 Resize", variant="primary")
                     with gr.Column(scale=1):
-                        res_out = gr.Image(label="Resized Image", height=320)
+                        res_out = gr.Image(label="Resized Image", height=320, interactive=False)
                         res_status = gr.Markdown(value="", elem_classes=["lc-status"])
 
                 res_btn.click(
@@ -793,7 +793,7 @@ def build_app():
 
                         crop_btn = gr.Button("✂️ Crop", variant="primary")
                     with gr.Column(scale=1):
-                        crop_out = gr.Image(label="Cropped Image", height=320)
+                        crop_out = gr.Image(label="Cropped Image", height=320, interactive=False)
                         crop_status = gr.Markdown(value="", elem_classes=["lc-status"])
 
                 crop_btn.click(
@@ -818,7 +818,7 @@ def build_app():
                         )
                         conv_btn = gr.Button("🔄 Convert", variant="primary")
                     with gr.Column(scale=1):
-                        conv_preview = gr.Image(label="Preview", height=300)
+                        conv_preview = gr.Image(label="Preview", height=300, interactive=False)
                         conv_file = gr.File(label="⬇️ Download Converted File")
                         conv_status = gr.Markdown(value="", elem_classes=["lc-status"])
 
