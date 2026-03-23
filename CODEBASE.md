@@ -10,8 +10,10 @@
 ```
 lover-clinic-ai-video-tools/
 ├── app/
-│   ├── app.py              ← Single Gradio app (~810 lines). ALL logic lives here.
+│   ├── app.py              ← Single Gradio app (~915 lines). ALL logic lives here.
 │   ├── requirements.txt    ← Python deps
+│   ├── static/
+│   │   └── icon.png        ← App icon served via allowed_paths → /file=static/icon.png
 │   └── logs/app.log        ← Runtime error log (gitignored, written by app.py)
 ├── install.js              ← pip install + torch.js + fs.link
 ├── start.js                ← git pull → python app.py --port {{port}}
@@ -46,9 +48,11 @@ lover-clinic-ai-video-tools/
 | 297–324 | `resize_image()` | PIL resize, aspect-ratio lock, 4 resample filters |
 | 327–340 | `crop_image()` | PIL crop with bounds clamping |
 | 343–374 | `convert_format()` | PIL save to JPEG/PNG/WEBP/BMP/TIFF, quality slider |
-| 377–550 | `CSS` constant | Full Red/Black/White/Fire theme (CSS variables + selectors) |
-| 553–795 | `build_app()` | Gradio UI — 7 tabs wired to functions above |
-| 797–820 | `__main__` | argparse `--port`, `app.launch(theme=..., css=CSS)` |
+| 377–600 | `CSS` constant | Full Red/Black/White/Fire theme + header redesign styles |
+| 601–615 | `HEADER_HTML` | Icon + brand name + CLINIC + subtitle + tech pills |
+| 617–622 | `WARN_GPU` | GPU warning info-box HTML |
+| 625–890 | `build_app()` | Gradio UI — 7 tabs wired to functions above |
+| 892–915 | `__main__` | argparse `--port`, `allowed_paths`, `favicon_path`, `app.launch()` |
 
 ---
 
