@@ -1,0 +1,30 @@
+node_modules
+.DS_Store
+
+# Python environments
+app/env/
+env/
+
+# Model cache (auto-downloaded at runtime)
+app/models/
+~/.cache/huggingface/
+~/.cache/torch/
+~/.u2net/
+
+# Gradio temp files
+app/flagged/
+app/gradio_cached_examples/
+
+# Runtime outputs
+*.pyc
+__pycache__/
+*.egg-info/
+dist/
+build/
+
+# Logs
+logs/
+
+# Temp files
+*.tmp
+*.temp
