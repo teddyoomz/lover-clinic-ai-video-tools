@@ -552,6 +552,9 @@ input[type="range"], input[type="radio"], input[type="checkbox"] {
   accent-color: var(--lc-red) !important;
 }
 
+/* ── Hide browser broken-image icon (empty src) ── */
+img[src=""], img[src="data:"] { display: none !important; }
+
 /* ── Status message (replaces textbox status) */
 .lc-status {
   min-height: 0 !important; padding: 4px 2px !important;
