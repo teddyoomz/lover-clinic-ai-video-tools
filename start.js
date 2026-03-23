@@ -1,6 +1,13 @@
 module.exports = {
   daemon: true,
   run: [
+    // Auto-update: pull latest code from GitHub before starting
+    {
+      method: "shell.run",
+      params: {
+        message: "git pull"
+      }
+    },
     {
       method: "shell.run",
       params: {
