@@ -4,11 +4,45 @@ import sys
 import tempfile
 import shutil
 import subprocess
+import logging
+import traceback
 from pathlib import Path
 from PIL import Image
 import numpy as np
 import cv2
 import io
+
+# ============================================================
+# LOGGING SETUP — errors written to logs/app.log + stderr
+# ============================================================
+
+_log_dir = Path(__file__).parent / "logs"
+_log_dir.mkdir(exist_ok=True)
+logging.basicConfig(
+    level=logging.DEBUG,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    handlers=[
+        logging.FileHandler(_log_dir / "app.log", encoding="utf-8"),
+        logging.StreamHandler(sys.stderr),
+    ],
+)
+logger = logging.getLogger("lover-clinic")
+logger.info("=== Lover Clinic AI Video Tools starting ===")
+
+# ============================================================
+# COMPATIBILITY PATCH — torchvision >= 0.16 removed functional_tensor
+# (needed by basicsr / realesrgan)
+# ============================================================
+
+try:
+    import torchvision.transforms.functional_tensor  # noqa: F401
+except ModuleNotFoundError:
+    try:
+        import torchvision.transforms.functional as _ft
+        sys.modules["torchvision.transforms.functional_tensor"] = _ft
+        logger.info("Applied torchvision.functional_tensor compatibility patch")
+    except Exception as _e:
+        logger.warning(f"Could not apply torchvision patch: {_e}")
 
 # ============================================================
 # LAZY MODEL MANAGERS
@@ -97,6 +131,7 @@ def upscale_photo(image, scale, model_type, progress=gr.Progress()):
         result = Image.fromarray(cv2.cvtColor(output, cv2.COLOR_BGR2RGB))
         return result, f"✅ Upscaled {scale}x — {result.width}×{result.height} px"
     except Exception as e:
+        logger.error(f"upscale_photo failed: {e}\n{traceback.format_exc()}")
         return None, f"❌ Error: {e}"
 
 
@@ -176,6 +211,7 @@ def upscale_video(video_path, scale, model_type, progress=gr.Progress()):
         progress(1.0, desc="Done!")
         return final_path, f"✅ Video upscaled {scale}x successfully!"
     except Exception as e:
+        logger.error(f"upscale_video failed: {e}\n{traceback.format_exc()}")
         return None, f"❌ Error: {e}"
 
 
@@ -217,6 +253,7 @@ def remove_background(image, model_choice, bg_option, custom_bg,
         progress(1.0)
         return final, "✅ Background removed successfully!"
     except Exception as e:
+        logger.error(f"remove_background failed: {e}\n{traceback.format_exc()}")
         return None, f"❌ Error: {e}"
 
 
@@ -253,6 +290,7 @@ def enhance_image(image, upscale_factor, enhance_bg, progress=gr.Progress()):
         progress(1.0)
         return result, "✅ Image enhanced successfully!"
     except Exception as e:
+        logger.error(f"enhance_image failed: {e}\n{traceback.format_exc()}")
         return None, f"❌ Error: {e}"
 
 
@@ -282,6 +320,7 @@ def resize_image(image, width, height, maintain_ar, resample_filter):
 
         return result, f"✅ Resized to {result.width}×{result.height} px"
     except Exception as e:
+        logger.error(f"resize_image failed: {e}\n{traceback.format_exc()}")
         return None, f"❌ Error: {e}"
 
 
@@ -297,6 +336,7 @@ def crop_image(image, left, top, right, bottom):
         result = image.crop((l, t, r, b))
         return result, f"✅ Cropped to {result.width}×{result.height} px"
     except Exception as e:
+        logger.error(f"crop_image failed: {e}\n{traceback.format_exc()}")
         return None, f"❌ Error: {e}"
 
 
@@ -330,6 +370,7 @@ def convert_format(image, out_format, quality):
         preview = Image.open(out_path)
         return preview, out_path, f"✅ Converted to {out_format} — saved as lc_converted{ext}"
     except Exception as e:
+        logger.error(f"convert_format failed: {e}\n{traceback.format_exc()}")
         return None, None, f"❌ Error: {e}"
 
 
@@ -516,13 +557,7 @@ GPU strongly recommended.
 # ============================================================
 
 def build_app():
-    theme = gr.themes.Base(
-        primary_hue=gr.themes.colors.red,
-        neutral_hue=gr.themes.colors.gray,
-        font=gr.themes.GoogleFont("Inter"),
-    )
-
-    with gr.Blocks(css=CSS, title="Lover Clinic AI Video Tools", theme=theme) as demo:
+    with gr.Blocks(title="Lover Clinic AI Video Tools") as demo:
         gr.HTML(HEADER_HTML)
 
         with gr.Tabs():
@@ -760,10 +795,17 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     app = build_app()
+    logger.info(f"Launching on http://127.0.0.1:{args.port}")
     app.launch(
         server_name="127.0.0.1",
         server_port=args.port,
         share=False,
         show_error=True,
         favicon_path=None,
+        theme=gr.themes.Base(
+            primary_hue=gr.themes.colors.red,
+            neutral_hue=gr.themes.colors.gray,
+            font=gr.themes.GoogleFont("Inter"),
+        ),
+        css=CSS,
     )

@@ -24,6 +24,7 @@ build/
 
 # Logs
 logs/
+app/logs/
 
 # Temp files
 *.tmp
