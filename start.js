@@ -1,23 +1,16 @@
 module.exports = {
   daemon: true,
   run: [
-    // Step 1: Pull latest code from GitHub
-    {
-      method: "shell.run",
-      params: {
-        message: "git pull"
-      }
-    },
-    // Step 2: Smart dep check — reinstalls ONLY if requirements.txt changed
+    // Step 1: Smart pre-launch check (deps hash + torch smoke test + auto-fix)
     {
       method: "shell.run",
       params: {
         venv: "env",
         path: "app",
-        message: ["python check_deps.py"]
+        message: ["python smart.py start"]
       }
     },
-    // Step 3: Launch server
+    // Step 2: Launch server
     {
       method: "shell.run",
       params: {
@@ -26,16 +19,14 @@ module.exports = {
         env: {
           PYTORCH_ENABLE_MPS_FALLBACK: "1"
         },
-        message: [
-          "python app.py --port {{port}}"
-        ],
+        message: ["python app.py --port {{port}}"],
         on: [{
           event: "/(http:\\/\\/[0-9.:]+)/",
           done: true
         }]
       }
     },
-    // Step 4: Surface the URL
+    // Step 3: Surface URL
     {
       method: "local.set",
       params: {

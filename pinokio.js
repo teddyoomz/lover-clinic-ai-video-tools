@@ -10,9 +10,10 @@ module.exports = {
       start:   info.running("start.js"),
       update:  info.running("update.js"),
       reset:   info.running("reset.js"),
+      fix:     info.running("fix.js"),
     }
 
-    // ── Installing ───────────────────────────────────────
+    // ── Installing ───────────────────────────────────────────
     if (running.install) {
       return [{
         default: true,
@@ -22,7 +23,17 @@ module.exports = {
       }]
     }
 
-    // ── Installed ────────────────────────────────────────
+    // ── Fixing ───────────────────────────────────────────────
+    if (running.fix) {
+      return [{
+        default: true,
+        icon: "fa-solid fa-spinner fa-spin",
+        text: "Fixing…",
+        href: "fix.js",
+      }]
+    }
+
+    // ── Installed ────────────────────────────────────────────
     if (installed) {
 
       if (running.start) {
@@ -41,7 +52,7 @@ module.exports = {
         }
         return [{
           default: true,
-          icon: "fa-solid fa-terminal",
+          icon: "fa-solid fa-spinner fa-spin",
           text: "Starting…",
           href: "start.js",
         }]
@@ -50,7 +61,7 @@ module.exports = {
       if (running.update) {
         return [{
           default: true,
-          icon: "fa-solid fa-terminal",
+          icon: "fa-solid fa-spinner fa-spin",
           text: "Updating…",
           href: "update.js",
         }]
@@ -59,13 +70,13 @@ module.exports = {
       if (running.reset) {
         return [{
           default: true,
-          icon: "fa-solid fa-terminal",
+          icon: "fa-solid fa-spinner fa-spin",
           text: "Resetting…",
           href: "reset.js",
         }]
       }
 
-      // Idle — show full menu
+      // ── Idle — full menu ──────────────────────────────────
       return [{
         default: true,
         icon: "fa-solid fa-power-off",
@@ -75,6 +86,10 @@ module.exports = {
         icon: "fa-solid fa-rotate",
         text: "Update",
         href: "update.js",
+      }, {
+        icon: "fa-solid fa-wrench",
+        text: "Fix",
+        href: "fix.js",
       }, {
         icon: "fa-solid fa-plug",
         text: "Re-install",
@@ -87,7 +102,7 @@ module.exports = {
       }]
     }
 
-    // ── Not installed ────────────────────────────────────
+    // ── Not installed ─────────────────────────────────────────
     return [{
       default: true,
       icon: "fa-solid fa-plug",
