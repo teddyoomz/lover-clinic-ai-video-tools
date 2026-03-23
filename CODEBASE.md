@@ -85,11 +85,13 @@ lover-clinic-ai-video-tools/
 
 | File | Key params | Notes |
 |------|-----------|-------|
-| `install.js` | `venv:"env" path:"app"` | step 1: pip; step 2: torch.js; step 3: fs.link venv:"app/env" |
-| `start.js` | `daemon:true` | git pull first, then `python app.py --port {{port}}`, captures `/(http:\/\/[0-9.:]+)/`, sets `local.url` via `input.event[1]` |
+| `install.js` | `venv:"env" path:"app"` | pip → torch.js (GPU auto-detect) → **verify_torch.py** (CUDA fallback) → fs.link |
+| `start.js` | `daemon:true` | git pull → **check_deps.py** (hash+torch smoke) → `python app.py --port {{port}}` → `local.url` |
 | `update.js` | `venv:"env" path:"app"` | re-runs pip install only |
 | `reset.js` | — | deletes `app/env` |
 | `pinokio.js` | — | checks `info.exists("app/env")`, `info.running(...)`, `info.local("start.js").url` |
+| `app/verify_torch.py` | — | prints GPU/VRAM/driver report; if CUDA DLL fails → auto CPU fallback |
+| `app/check_deps.py` | — | MD5 hash check + torch smoke test; runs on every Start |
 
 ---
 
