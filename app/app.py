@@ -409,22 +409,79 @@ footer { display: none !important; }
 
 /* ---- Header ---- */
 #lc-header {
-  background: linear-gradient(135deg, #0A0000 0%, #1A0000 40%, #0A0000 100%);
+  position: relative; overflow: hidden;
+  background: linear-gradient(135deg, #000000 0%, #0D0000 35%, #1A0000 60%, #0D0000 100%);
   border-bottom: 2px solid var(--lc-red);
-  padding: 18px 28px 14px;
-  display: flex; align-items: center; gap: 18px;
-  margin-bottom: 4px;
+  padding: 0;
+  margin-bottom: 6px;
 }
-#lc-header h1 {
+#lc-header::before {
+  content: '';
+  position: absolute; inset: 0;
+  background:
+    radial-gradient(ellipse 60% 80% at 50% -20%, rgba(204,0,0,0.18) 0%, transparent 70%),
+    radial-gradient(ellipse 30% 60% at 10% 50%, rgba(255,69,0,0.08) 0%, transparent 60%);
+  pointer-events: none;
+}
+#lc-header-inner {
+  position: relative; z-index: 1;
+  display: flex; align-items: center;
+  padding: 16px 28px 14px; gap: 20px;
+}
+#lc-icon {
+  width: 64px; height: 64px; flex-shrink: 0;
+  border-radius: 14px;
+  box-shadow: 0 0 0 1px rgba(204,0,0,0.4), 0 4px 24px rgba(204,0,0,0.5), 0 0 40px rgba(255,69,0,0.2);
+  object-fit: cover;
+}
+#lc-brand { flex: 1; min-width: 0; }
+#lc-brand .lc-name {
   font-family: 'Rajdhani', sans-serif;
-  font-size: 26px; font-weight: 700;
-  color: #fff; margin: 0;
-  text-transform: uppercase; letter-spacing: 3px;
-  text-shadow: 0 0 24px rgba(255,60,0,0.5);
+  font-size: 30px; font-weight: 700; margin: 0;
+  letter-spacing: 6px; text-transform: uppercase; line-height: 1;
+  background: linear-gradient(90deg, #ffffff 0%, #f0f0f0 40%, #cc0000 70%, #ff4500 100%);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+  filter: drop-shadow(0 0 12px rgba(204,0,0,0.4));
 }
-#lc-header .sub {
-  font-size: 11px; color: var(--lc-muted);
-  letter-spacing: 1.5px; text-transform: uppercase; margin-top: 3px;
+#lc-brand .lc-name span {
+  background: linear-gradient(90deg, #ff1111, #ff7700);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+#lc-brand .lc-clinic {
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 12px; font-weight: 500;
+  letter-spacing: 8px; text-transform: uppercase;
+  color: rgba(255,255,255,0.35); margin: 1px 0 6px 2px;
+}
+#lc-brand .lc-sub {
+  font-size: 11px; color: rgba(255,255,255,0.4);
+  letter-spacing: 1.2px; text-transform: uppercase;
+}
+#lc-brand .lc-sub span {
+  color: rgba(204,0,0,0.8);
+  margin: 0 5px;
+}
+#lc-pills {
+  display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+  flex-shrink: 0;
+}
+.lc-pill {
+  font-size: 10px; font-weight: 600; letter-spacing: 1px;
+  text-transform: uppercase; padding: 4px 10px;
+  border-radius: 20px; white-space: nowrap;
+  border: 1px solid rgba(204,0,0,0.4);
+  background: rgba(204,0,0,0.1); color: rgba(255,255,255,0.6);
+}
+.lc-pill.active {
+  background: linear-gradient(135deg, #880000, #cc2200);
+  border-color: transparent; color: #fff;
+  box-shadow: 0 2px 10px rgba(204,0,0,0.4);
+}
+#lc-fireline {
+  height: 2px; margin: 0;
+  background: linear-gradient(90deg, transparent 0%, #550000 10%, var(--lc-red) 30%, var(--lc-fire) 50%, var(--lc-red) 70%, #550000 90%, transparent 100%);
 }
 
 /* ---- Tabs ---- */
@@ -539,10 +596,26 @@ input[type="radio"], input[type="checkbox"] { accent-color: var(--lc-red) !impor
 
 HEADER_HTML = """
 <div id="lc-header">
-  <div>
-    <h1>🔥 Lover Clinic AI Video Tools</h1>
-    <div class="sub">AI-Powered Image &amp; Video Processing Suite — Upscale · Enhance · Remove BG · Convert</div>
+  <div id="lc-header-inner">
+    <img id="lc-icon" src="/file=static/icon.png" alt="Lover Clinic" />
+    <div id="lc-brand">
+      <div class="lc-name">Lo<span>V</span>er</div>
+      <div class="lc-clinic">C &nbsp; L &nbsp; I &nbsp; N &nbsp; I &nbsp; C</div>
+      <div class="lc-sub">AI Image &amp; Video Suite
+        <span>·</span> Upscale
+        <span>·</span> Enhance
+        <span>·</span> Remove BG
+        <span>·</span> Convert
+      </div>
+    </div>
+    <div id="lc-pills">
+      <div class="lc-pill active">Real-ESRGAN</div>
+      <div class="lc-pill active">GFPGAN</div>
+      <div class="lc-pill active">BiRefNet</div>
+      <div class="lc-pill">GPU Ready</div>
+    </div>
   </div>
+  <div id="lc-fireline"></div>
 </div>
 """
 
@@ -776,12 +849,16 @@ def build_app():
                 )
 
         gr.HTML("""
-        <div style="text-align:center;padding:16px 0 8px;
-                    color:#444;font-size:11px;
-                    border-top:1px solid #2A0000;margin-top:16px;
-                    letter-spacing:1px;">
-          🔥 LOVER CLINIC AI VIDEO TOOLS &nbsp;·&nbsp;
-          Real-ESRGAN &nbsp;·&nbsp; GFPGAN &nbsp;·&nbsp; BiRefNet
+        <div style="text-align:center;padding:14px 0 10px;
+                    border-top:1px solid #2A0000;margin-top:8px;">
+          <div style="display:inline-flex;align-items:center;gap:10px;">
+            <img src="/file=static/icon.png"
+                 style="width:22px;height:22px;border-radius:5px;opacity:0.7;" />
+            <span style="font-family:'Rajdhani',sans-serif;font-size:13px;
+                         letter-spacing:3px;text-transform:uppercase;color:#444;">
+              Lover Clinic AI Video Tools
+            </span>
+          </div>
         </div>
         """)
 
@@ -794,6 +871,9 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=7860)
     args = parser.parse_args()
 
+    static_dir = str(Path(__file__).parent / "static")
+    favicon = str(Path(__file__).parent / "static" / "icon.png")
+
     app = build_app()
     logger.info(f"Launching on http://127.0.0.1:{args.port}")
     app.launch(
@@ -801,7 +881,8 @@ if __name__ == "__main__":
         server_port=args.port,
         share=False,
         show_error=True,
-        favicon_path=None,
+        favicon_path=favicon,
+        allowed_paths=[static_dir],
         theme=gr.themes.Base(
             primary_hue=gr.themes.colors.red,
             neutral_hue=gr.themes.colors.gray,
