@@ -32,16 +32,17 @@ logger.info("=== Lover Clinic AI Video Tools starting ===")
 # ============================================================
 # COMPATIBILITY PATCH — torchvision >= 0.16 removed functional_tensor
 # (needed by basicsr / realesrgan)
+# Also catches OSError for Windows CUDA DLL load failures
 # ============================================================
 
 try:
     import torchvision.transforms.functional_tensor  # noqa: F401
-except ModuleNotFoundError:
+except (ModuleNotFoundError, OSError):
     try:
         import torchvision.transforms.functional as _ft
         sys.modules["torchvision.transforms.functional_tensor"] = _ft
         logger.info("Applied torchvision.functional_tensor compatibility patch")
-    except Exception as _e:
+    except (ImportError, OSError) as _e:
         logger.warning(f"Could not apply torchvision patch: {_e}")
 
 # ============================================================
@@ -82,8 +83,8 @@ def get_device():
             return "cuda"
         elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
             return "mps"
-    except Exception:
-        pass
+    except (ImportError, OSError) as e:
+        logger.warning(f"torch unavailable ({e}), falling back to CPU")
     return "cpu"
 
 
