@@ -1,13 +1,23 @@
 module.exports = {
   daemon: true,
   run: [
-    // Auto-update: pull latest code from GitHub before starting
+    // Step 1: Pull latest code from GitHub
     {
       method: "shell.run",
       params: {
         message: "git pull"
       }
     },
+    // Step 2: Smart dep check — reinstalls ONLY if requirements.txt changed
+    {
+      method: "shell.run",
+      params: {
+        venv: "env",
+        path: "app",
+        message: ["python check_deps.py"]
+      }
+    },
+    // Step 3: Launch server
     {
       method: "shell.run",
       params: {
@@ -25,6 +35,7 @@ module.exports = {
         }]
       }
     },
+    // Step 4: Surface the URL
     {
       method: "local.set",
       params: {

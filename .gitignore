@@ -26,6 +26,9 @@ build/
 logs/
 app/logs/
 
+# Smart dep checker hash (auto-generated at runtime)
+.req_hash
+
 # Temp files
 *.tmp
 *.temp

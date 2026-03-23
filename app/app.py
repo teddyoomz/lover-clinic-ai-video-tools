@@ -45,6 +45,28 @@ except ModuleNotFoundError:
         logger.warning(f"Could not apply torchvision patch: {_e}")
 
 # ============================================================
+# BASE64 IMAGE HELPERS — embed images directly to avoid /file= issues
+# ============================================================
+
+def _b64_img(filename: str) -> str:
+    """Return a base64 data-URI for an image in the static/ folder."""
+    try:
+        import base64
+        p = Path(__file__).parent / "static" / filename
+        data = base64.b64encode(p.read_bytes()).decode()
+        ext = p.suffix.lower().lstrip(".")
+        mime = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                "gif": "image/gif", "webp": "image/webp"}.get(ext, "image/png")
+        return f"data:{mime};base64,{data}"
+    except Exception as e:
+        logger.warning(f"Could not load {filename}: {e}")
+        return ""
+
+_ICON_SRC = _b64_img("icon.png")
+_LOGO_SRC = _b64_img("logo.png")
+logger.info(f"Branding loaded — icon: {len(_ICON_SRC)>0}, logo: {len(_LOGO_SRC)>0}")
+
+# ============================================================
 # LAZY MODEL MANAGERS
 # ============================================================
 
@@ -379,244 +401,176 @@ def convert_format(image, out_format, quality):
 # ============================================================
 
 CSS = """
-/* ======= Lover Clinic — Red / Black / White / Fire Theme ======= */
-@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@500;700&family=Inter:wght@300;400;500;600&display=swap');
+/* ======= Lover Clinic — Premium Dark Theme ======= */
+@import url('https://fonts.googleapis.com/css2?family=Rajdhani:wght@600;700&family=Inter:wght@300;400;500;600&display=swap');
 
 :root {
-  --lc-red:        #CC0000;
-  --lc-red-bright: #FF1111;
-  --lc-fire:       #FF4500;
-  --lc-fire2:      #FF7700;
-  --lc-dark:       #080808;
-  --lc-dark2:      #101010;
-  --lc-surface:    #181818;
-  --lc-surface2:   #202020;
-  --lc-border:     #2A0000;
-  --lc-border2:    #440000;
-  --lc-white:      #F2F2F2;
-  --lc-muted:      #777777;
-  --radius:        8px;
+  --lc-red:     #CC0000;
+  --lc-fire:    #FF4500;
+  --lc-dark:    #0a0a0a;
+  --lc-surface: #141414;
+  --lc-panel:   #1c1c1c;
+  --lc-border:  #2a2a2a;
+  --lc-red-dim: #1e0000;
+  --lc-white:   #e8e8e8;
+  --lc-muted:   #666;
+  --radius:     10px;
 }
 
-/* ---- Base ---- */
+/* ── Base ─────────────────────────────────── */
 body, .gradio-container {
   background: var(--lc-dark) !important;
   color: var(--lc-white) !important;
   font-family: 'Inter', sans-serif !important;
 }
-.gradio-container { max-width: 1440px !important; }
+.gradio-container { max-width: 1440px !important; margin: 0 auto !important; }
 footer { display: none !important; }
 
-/* ---- Header ---- */
+/* ── Header ───────────────────────────────── */
 #lc-header {
   position: relative; overflow: hidden;
-  background: linear-gradient(160deg, #000000 0%, #0D0000 40%, #1A0000 70%, #0A0000 100%);
-  border-bottom: 2px solid var(--lc-red);
-  padding: 0;
-  margin-bottom: 6px;
+  background: linear-gradient(135deg, #000 0%, #110000 50%, #000 100%);
+  padding: 0; margin-bottom: 8px;
+  border-radius: 0 0 12px 12px;
 }
-#lc-header::before {
+#lc-header::after {
   content: '';
-  position: absolute; inset: 0;
-  background:
-    radial-gradient(ellipse 70% 100% at 50% -10%, rgba(204,0,0,0.14) 0%, transparent 65%),
-    radial-gradient(ellipse 40% 80% at 5% 50%,  rgba(255,69,0,0.07) 0%, transparent 60%),
-    radial-gradient(ellipse 40% 80% at 95% 50%, rgba(255,69,0,0.07) 0%, transparent 60%);
+  position: absolute; bottom: 0; left: 0; right: 0; height: 2px;
+  background: linear-gradient(90deg, transparent, #880000 20%, var(--lc-red) 40%, var(--lc-fire) 50%, var(--lc-red) 60%, #880000 80%, transparent);
+}
+#lc-glow {
+  position: absolute; top: -40px; left: 50%; transform: translateX(-50%);
+  width: 500px; height: 160px;
+  background: radial-gradient(ellipse, rgba(180,0,0,0.2) 0%, transparent 70%);
   pointer-events: none;
 }
 #lc-header-inner {
   position: relative; z-index: 1;
-  display: flex; align-items: center;
-  padding: 18px 32px 16px; gap: 24px;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 20px 32px 22px; gap: 24px;
 }
-/* App icon — left side */
+#lc-left { display: flex; align-items: center; gap: 20px; }
 #lc-icon {
-  width: 68px; height: 68px; flex-shrink: 0;
-  border-radius: 16px;
-  box-shadow:
-    0 0 0 1px rgba(204,0,0,0.45),
-    0 4px 20px rgba(204,0,0,0.55),
-    0 0 50px rgba(255,69,0,0.18);
-  object-fit: cover;
+  width: 70px; height: 70px; flex-shrink: 0;
+  border-radius: 18px; object-fit: cover;
+  box-shadow: 0 0 0 1px rgba(180,0,0,0.5), 0 8px 32px rgba(180,0,0,0.5), 0 0 60px rgba(255,60,0,0.15);
 }
-/* Logo image — center */
 #lc-logo {
-  height: 52px;
-  object-fit: contain;
-  filter: drop-shadow(0 0 16px rgba(204,0,0,0.45))
-          drop-shadow(0 2px 8px rgba(0,0,0,0.8));
-  flex: 1;
+  height: 56px; object-fit: contain;
+  filter: drop-shadow(0 0 20px rgba(200,0,0,0.5)) drop-shadow(0 1px 6px rgba(0,0,0,0.9));
 }
-/* Right pills */
-#lc-pills {
-  display: flex; flex-direction: column; gap: 5px;
-  align-items: flex-end; flex-shrink: 0;
+#lc-right {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
 }
+#lc-tagline {
+  font-size: 10px; letter-spacing: 2px; text-transform: uppercase;
+  color: rgba(255,255,255,0.22); text-align: right;
+  margin-bottom: 2px;
+}
+#lc-pills { display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
 .lc-pill {
-  font-size: 10px; font-weight: 600; letter-spacing: 1px;
-  text-transform: uppercase; padding: 3px 10px;
-  border-radius: 20px; white-space: nowrap;
-  border: 1px solid rgba(204,0,0,0.35);
-  background: rgba(204,0,0,0.08); color: rgba(255,255,255,0.5);
+  font-size: 10px; font-weight: 600; letter-spacing: 0.8px;
+  text-transform: uppercase; padding: 4px 12px; border-radius: 20px;
+  border: 1px solid rgba(255,255,255,0.08);
+  background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.35);
 }
-.lc-pill.active {
-  background: linear-gradient(135deg, #7a0000, #bb2000);
-  border-color: transparent; color: #fff;
-  box-shadow: 0 2px 8px rgba(204,0,0,0.4);
-}
-/* Sub-title row below logo */
-#lc-subtitle {
-  position: relative; z-index: 1;
-  text-align: center;
-  font-size: 10px; letter-spacing: 2.5px;
-  text-transform: uppercase;
-  color: rgba(255,255,255,0.28);
-  padding: 0 32px 10px;
-}
-#lc-subtitle span { color: rgba(204,0,0,0.65); margin: 0 6px; }
-/* Fire divider */
-#lc-fireline {
-  height: 2px; margin: 0;
-  background: linear-gradient(90deg,
-    transparent 0%,
-    #440000 8%,
-    var(--lc-red) 28%,
-    var(--lc-fire) 50%,
-    var(--lc-red) 72%,
-    #440000 92%,
-    transparent 100%);
+.lc-pill.hot {
+  background: rgba(180,0,0,0.25); border-color: rgba(204,0,0,0.4);
+  color: rgba(255,120,100,0.9);
 }
 
-/* ---- Tabs ---- */
-.tab-nav { background: var(--lc-dark2) !important; border-bottom: 1px solid var(--lc-border2) !important; }
+/* ── Tabs ─────────────────────────────────── */
+.tab-nav { background: var(--lc-surface) !important; border-bottom: 1px solid var(--lc-border) !important; }
 .tab-nav button {
   color: var(--lc-muted) !important; background: transparent !important;
-  border: none !important; font-size: 13px !important;
-  padding: 11px 18px !important; letter-spacing: 0.4px !important;
-  transition: all 0.2s !important;
+  border: none !important; font-size: 13px !important; font-weight: 500 !important;
+  padding: 12px 20px !important; transition: color .15s !important;
 }
-.tab-nav button:hover { color: var(--lc-white) !important; background: rgba(204,0,0,0.08) !important; }
+.tab-nav button:hover  { color: var(--lc-white) !important; }
 .tab-nav button.selected {
-  color: #fff !important;
-  background: linear-gradient(180deg, #990000 0%, var(--lc-red) 100%) !important;
-  border-bottom: 2px solid var(--lc-fire) !important;
+  color: #fff !important; background: transparent !important;
+  border-bottom: 2px solid var(--lc-red) !important;
 }
 
-/* ---- Blocks / Panels ---- */
-.block, .panel {
-  background: var(--lc-surface) !important;
+/* ── Panels ───────────────────────────────── */
+.block, .panel, .form {
+  background: var(--lc-panel) !important;
   border: 1px solid var(--lc-border) !important;
   border-radius: var(--radius) !important;
 }
-.gap { gap: 12px !important; }
 
-/* ---- Section headings ---- */
+/* ── Section headings ─────────────────────── */
 .sec-head {
   font-family: 'Rajdhani', sans-serif;
-  font-size: 16px; font-weight: 700; letter-spacing: 2px;
+  font-size: 15px; font-weight: 700; letter-spacing: 2.5px;
   color: var(--lc-red); text-transform: uppercase;
-  border-bottom: 1px solid var(--lc-border2);
-  padding-bottom: 8px; margin-bottom: 14px;
+  padding-bottom: 10px; margin-bottom: 16px;
+  border-bottom: 1px solid var(--lc-red-dim);
 }
 
-/* ---- Labels ---- */
-label span, .label-wrap span {
-  color: var(--lc-muted) !important;
-  font-size: 11px !important; font-weight: 500 !important;
-  letter-spacing: 0.6px !important; text-transform: uppercase !important;
-}
-
-/* ---- Inputs ---- */
-input[type="text"], input[type="number"], textarea {
-  background: var(--lc-surface2) !important;
-  border: 1px solid var(--lc-border2) !important;
+/* ── Inputs ───────────────────────────────── */
+input[type="text"], input[type="number"], textarea, select {
+  background: var(--lc-surface) !important;
+  border: 1px solid var(--lc-border) !important;
   color: var(--lc-white) !important;
-  border-radius: 6px !important;
+  border-radius: 8px !important;
 }
 input:focus, textarea:focus {
   border-color: var(--lc-red) !important;
-  box-shadow: 0 0 0 2px rgba(204,0,0,0.25) !important;
+  box-shadow: 0 0 0 2px rgba(204,0,0,0.2) !important;
   outline: none !important;
 }
 
-/* ---- Buttons ---- */
-button.primary, .btn-primary {
-  background: linear-gradient(135deg, #990000, var(--lc-fire)) !important;
+/* ── Primary button ───────────────────────── */
+button.primary {
+  background: linear-gradient(135deg, #a30000 0%, #cc2200 60%, #e03000 100%) !important;
   border: none !important; color: #fff !important;
-  font-weight: 600 !important; letter-spacing: 1px !important;
-  text-transform: uppercase !important; border-radius: var(--radius) !important;
-  padding: 11px 22px !important; transition: all 0.2s !important;
-  box-shadow: 0 4px 18px rgba(204,0,0,0.35) !important;
+  font-weight: 600 !important; letter-spacing: 0.8px !important;
+  border-radius: 8px !important; transition: all .2s !important;
+  box-shadow: 0 2px 16px rgba(180,0,0,0.4) !important;
 }
 button.primary:hover {
-  background: linear-gradient(135deg, var(--lc-red-bright), var(--lc-fire2)) !important;
-  box-shadow: 0 6px 24px rgba(255,17,17,0.45) !important;
+  box-shadow: 0 4px 24px rgba(204,0,0,0.55) !important;
   transform: translateY(-1px) !important;
+  filter: brightness(1.1) !important;
 }
 button.secondary {
-  background: var(--lc-surface2) !important;
-  border: 1px solid var(--lc-border2) !important;
-  color: var(--lc-white) !important; border-radius: var(--radius) !important;
+  background: var(--lc-surface) !important;
+  border: 1px solid var(--lc-border) !important;
+  color: var(--lc-white) !important; border-radius: 8px !important;
 }
 
-/* ---- Upload zone ---- */
-.upload-button, [data-testid="image"] .wrap {
-  background: var(--lc-surface2) !important;
-  border: 2px dashed var(--lc-border2) !important;
-  border-radius: var(--radius) !important;
-}
-.upload-button:hover, [data-testid="image"] .wrap:hover {
-  border-color: var(--lc-red) !important;
-  background: rgba(204,0,0,0.05) !important;
+/* ── Sliders / Radio ──────────────────────── */
+input[type="range"], input[type="radio"], input[type="checkbox"] {
+  accent-color: var(--lc-red) !important;
 }
 
-/* ---- Sliders ---- */
-input[type="range"] { accent-color: var(--lc-red) !important; }
-
-/* ---- Radio / Checkbox ---- */
-input[type="radio"], input[type="checkbox"] { accent-color: var(--lc-red) !important; }
-
-/* ---- Dropdown ---- */
-.wrap-inner, select {
-  background: var(--lc-surface2) !important;
-  border-color: var(--lc-border2) !important;
-  color: var(--lc-white) !important;
-}
-
-/* ---- Info text / status ---- */
+/* ── Info box ─────────────────────────────── */
 .info-box {
-  background: #1A0A0A; border-left: 3px solid var(--lc-fire);
-  border-radius: 0 6px 6px 0; padding: 9px 14px;
-  font-size: 12px; color: #FF9966; margin-bottom: 12px;
-}
-
-/* ---- Fire divider ---- */
-.fire-line {
-  height: 2px; border: none; margin: 12px 0;
-  background: linear-gradient(90deg, transparent, var(--lc-red), var(--lc-fire), var(--lc-red), transparent);
+  background: rgba(255,69,0,0.07); border-left: 3px solid var(--lc-fire);
+  border-radius: 0 8px 8px 0; padding: 10px 14px;
+  font-size: 12px; color: rgba(255,160,100,0.9); margin-bottom: 12px;
 }
 """
 
-HEADER_HTML = """
+HEADER_HTML = f"""
 <div id="lc-header">
+  <div id="lc-glow"></div>
   <div id="lc-header-inner">
-    <img id="lc-icon" src="/file=static/icon.png" alt="Lover Clinic Icon" />
-    <img id="lc-logo" src="/file=static/logo.png" alt="Lover Clinic" />
-    <div id="lc-pills">
-      <div class="lc-pill active">Real-ESRGAN</div>
-      <div class="lc-pill active">GFPGAN</div>
-      <div class="lc-pill active">BiRefNet</div>
-      <div class="lc-pill">GPU Ready</div>
+    <div id="lc-left">
+      <img id="lc-icon" src="{_ICON_SRC}" alt="" />
+      <img id="lc-logo" src="{_LOGO_SRC}" alt="Lover Clinic" />
+    </div>
+    <div id="lc-right">
+      <div id="lc-tagline">AI Image &amp; Video Processing Suite</div>
+      <div id="lc-pills">
+        <span class="lc-pill hot">Real-ESRGAN</span>
+        <span class="lc-pill hot">GFPGAN</span>
+        <span class="lc-pill hot">BiRefNet</span>
+        <span class="lc-pill">GPU Ready</span>
+      </div>
     </div>
   </div>
-  <div id="lc-subtitle">
-    AI Image &amp; Video Suite
-    <span>·</span> Upscale
-    <span>·</span> Enhance
-    <span>·</span> Remove BG
-    <span>·</span> Convert
-  </div>
-  <div id="lc-fireline"></div>
 </div>
 """
 
