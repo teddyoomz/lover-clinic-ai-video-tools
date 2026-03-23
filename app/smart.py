@@ -190,7 +190,7 @@ class SmartSetup:
             self.p(c(Y, "  🚀 Installing NVIDIA CUDA 12.8 torch (Windows)..."))
             r = self._run(["uv","pip","install", *CPU_PKGS,
                            "--index-url", CUDA_INDEX,
-                           "--force-reinstall", "--no-deps"])
+                           "--force-reinstall"])
 
         elif gtype == "nvidia" and os_name == "Linux":
             self.p(c(Y, "  🚀 Installing NVIDIA CUDA 12.8 torch (Linux)..."))
@@ -207,19 +207,19 @@ class SmartSetup:
             self.p(c(Y, "  🚀 Installing AMD ROCm 6.3 torch (Linux)..."))
             r = self._run(["uv","pip","install", *CPU_PKGS,
                            "--index-url", ROCM_INDEX,
-                           "--force-reinstall", "--no-deps"])
+                           "--force-reinstall"])
 
         elif gtype == "apple":
             self.p(c(Y, "  🚀 Installing Apple Silicon torch (MPS at runtime)..."))
             r = self._run(["uv","pip","install", *CPU_PKGS,
                            "--index-url", CPU_INDEX,
-                           "--force-reinstall", "--no-deps"])
+                           "--force-reinstall"])
 
         else:
             self.p(c(Y, "  🚀 Installing CPU-only torch..."))
             r = self._run(["uv","pip","install", *CPU_PKGS,
                            "--index-url", CPU_INDEX,
-                           "--force-reinstall", "--no-deps"])
+                           "--force-reinstall"])
 
         if r.returncode != 0:
             self.p(c(R, "  ❌ torch install failed"))
@@ -233,11 +233,11 @@ class SmartSetup:
             return True
 
         # CUDA DLL failed → CPU fallback
-        self.p(c(Y, f"  ⚠️  torch load failed: {err[:120]}"))
+        self.p(c(Y, f"  ⚠️  torch load failed: {err[:200]}"))
         self.p(c(Y, "  🔄 Auto-fallback: installing CPU-only torch..."))
         r = self._run(["uv","pip","install", *CPU_PKGS,
                        "--index-url", CPU_INDEX,
-                       "--force-reinstall", "--no-deps"])
+                       "--force-reinstall"])
         if r.returncode == 0:
             ok, ver, dev, err = self._torch_status()
             if ok:
@@ -283,7 +283,9 @@ class SmartSetup:
         if hw["driver"]: self.p(c(W, f"  Drv : {hw['driver']}"))
         self.p("")
 
-        ok  = self._install_deps()
+        # Always force-install deps on fresh install — .req_hash may survive
+        # a reset (env deleted) giving a false "up to date" result.
+        ok  = self._install_deps(force=True)
         ok &= self._install_torch()
 
         self.p(c(G if ok else Y, "\n  🔥 Install complete!\n"))
@@ -384,11 +386,17 @@ class SmartSetup:
         return 0
 
     # ──────────────────────────────────────────────────────────
+    def _gradio_ok(self):
+        """Quick sanity check — can we actually import gradio?"""
+        r = self._run([sys.executable, "-c", "import gradio"],
+                      capture=True, timeout=15)
+        return r.returncode == 0
+
     def start(self):
         """Fast pre-launch check — minimal output."""
-        # Deps
-        if not self._deps_current():
-            self.p("📦 Deps changed — updating...")
+        # Deps: check hash AND verify gradio is actually importable
+        if not self._deps_current() or not self._gradio_ok():
+            self.p("📦 Deps missing or changed — installing...")
             if not self._install_deps(force=True):
                 sys.exit(1)
         else:
