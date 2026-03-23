@@ -1,9 +1,10 @@
 module.exports = {
   run: [
-    // Step 1: Install ffmpeg via conda (needed for video processing)
+    // Step 1: Install ffmpeg via conda (skip if already available)
     {
       method: "shell.run",
       params: {
+        when: "{{!which('ffmpeg')}}",
         message: "conda install -c conda-forge ffmpeg -y"
       }
     },
