@@ -40,10 +40,6 @@ module.exports = {
         let local = info.local("start.js")
         if (local && local.url) {
           return [{
-            icon: "fa-solid fa-rocket",
-            text: "Open Web UI",
-            href: local.url,
-          }, {
             default: true,
             icon: "fa-solid fa-terminal",
             text: "Terminal",
