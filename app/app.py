@@ -457,8 +457,14 @@ footer { display: none !important; }
   box-shadow: 0 0 0 1px rgba(180,0,0,0.5), 0 8px 32px rgba(180,0,0,0.5), 0 0 60px rgba(255,60,0,0.15);
 }
 #lc-logo {
-  height: 56px; object-fit: contain;
-  filter: drop-shadow(0 0 20px rgba(200,0,0,0.5)) drop-shadow(0 1px 6px rgba(0,0,0,0.9));
+  height: 56px; object-fit: contain; max-width: 260px;
+  filter: brightness(0) invert(1) drop-shadow(0 0 16px rgba(220,0,0,0.7));
+}
+#lc-logo[src=""], #lc-logo:not([src]) { display: none; }
+#lc-logo-text {
+  font-family: 'Rajdhani', sans-serif; font-weight: 700;
+  font-size: 32px; letter-spacing: 4px; color: #fff;
+  text-shadow: 0 0 20px rgba(220,0,0,0.8);
 }
 #lc-right {
   display: flex; flex-direction: column; align-items: flex-end; gap: 6px;
@@ -554,13 +560,19 @@ input[type="range"], input[type="radio"], input[type="checkbox"] {
 }
 """
 
+_logo_el = (
+    f'<img id="lc-logo" src="{_LOGO_SRC}" alt="Lover Clinic" />'
+    if _LOGO_SRC else
+    '<span id="lc-logo-text">LOVER CLINIC</span>'
+)
+
 HEADER_HTML = f"""
 <div id="lc-header">
   <div id="lc-glow"></div>
   <div id="lc-header-inner">
     <div id="lc-left">
       <img id="lc-icon" src="{_ICON_SRC}" alt="" />
-      <img id="lc-logo" src="{_LOGO_SRC}" alt="Lover Clinic" />
+      {_logo_el}
     </div>
     <div id="lc-right">
       <div id="lc-tagline">AI Image &amp; Video Processing Suite</div>

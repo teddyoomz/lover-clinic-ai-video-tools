@@ -32,6 +32,13 @@ module.exports = {
       params: {
         url: "{{input.event[1]}}"
       }
+    },
+    // Step 4: Open in system default browser (not Pinokio iframe)
+    {
+      method: "shell.run",
+      params: {
+        message: ["python -c \"import webbrowser; webbrowser.open('{{local.url}}')\""]
+      }
     }
   ]
 }
