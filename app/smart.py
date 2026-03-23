@@ -412,6 +412,17 @@ class SmartSetup:
             self._install_torch(force=True)
 
     # ──────────────────────────────────────────────────────────
+    def torch_reinstall(self):
+        """Force-reinstall GPU torch (run after fs.link which may overwrite with CPU version)."""
+        self._banner("Torch Reinstall")
+        hw = self._detect_hardware()
+        self.p(c(W, f"\n  GPU : {hw['gpu_name']}"))
+        self.p("")
+        ok = self._install_torch(force=True)
+        self.p(c(G if ok else Y, "\n  🔥 Torch reinstall complete!\n"))
+        return 0 if ok else 1
+
+    # ──────────────────────────────────────────────────────────
     def check(self):
         """Print hardware + health report."""
         self._banner("Health Check")
@@ -440,12 +451,13 @@ class SmartSetup:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(prog="smart.py")
     parser.add_argument("mode",
-        choices=["install","update","fix","start","check"])
+        choices=["install","update","fix","start","check","torch"])
     args = parser.parse_args()
 
     s = SmartSetup()
     modes = {
         "install": s.install,
+        "torch":   s.torch_reinstall,
         "update":  s.update,
         "fix":     s.fix,
         "start":   s.start,
