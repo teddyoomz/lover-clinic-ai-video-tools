@@ -640,7 +640,7 @@ def _make_cropper_html(img) -> str:
   #lc-crop-wrap {{
     background:#050505;border:1px solid #1c1c1c;border-radius:10px;
     padding:6px;display:flex;justify-content:center;align-items:center;overflow:auto;
-    min-height:160px;flex-shrink:0;box-sizing:border-box;
+    min-height:160px;flex-shrink:0;
   }}
   #lc-canvas {{display:block;cursor:crosshair;border-radius:3px;}}
   /* ── Info bar ────────────────────────────────── */
@@ -1714,8 +1714,9 @@ CROP_INIT_JS = """
     var _longSide = Math.max(origW, origH);
     var maxH      = Math.round(_longSide * Math.min(1, maxW / _longSide));
     if (maxH < 160) maxH = 160;
-    // Lock wrap to fixed size — zoom only moves canvas inside the box
-    if (wrapEl) wrapEl.style.height = (maxH + 14) + 'px';
+    var _wrapMinH = maxH;  // remember for zoom — wrap can't go below this
+    // min-height = longest side fit; wrap grows when zooming
+    if (wrapEl) wrapEl.style.minHeight = _wrapMinH + 'px';
     var scale = Math.min(1, maxW / origW, maxH / origH);
 
     // ── Zoom ──────────────────────────────────────────────
@@ -1755,6 +1756,8 @@ CROP_INIT_JS = """
         ex=Math.round(ex*fx); ey=Math.round(ey*fy);
       }
       canvas.width=d.w; canvas.height=d.h;
+      // Grow wrap with canvas when zooming (never shrink below minH)
+      if(wrapEl) wrapEl.style.minHeight = Math.max(_wrapMinH, d.h) + 'px';
       redraw(); updateCoords();
       var zEl=document.getElementById('lc-zoom-val');
       if(zEl) zEl.textContent=Math.round(zoomFactor*100)+'%';
