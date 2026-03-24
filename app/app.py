@@ -2408,16 +2408,17 @@ def _build_download_tab(cfg: dict):
 
     # ── Helper: base yt-dlp options ──────────────────────────────────────────
     def _base_ydl_opts():
-        import shutil as _sh
-        opts: dict = {"quiet": True, "no_warnings": False, "color": False}
+        opts: dict = {"quiet": True, "no_warnings": True, "color": False}
         ffmpeg = _ffmpeg_bin()
         if ffmpeg:
             opts["ffmpeg_location"] = ffmpeg
-        # Let yt-dlp auto-detect JS runtimes; only fall back to android if none found
-        js_found = any(_sh.which(b) for b in ("node", "nodejs", "deno", "bun"))
-        if not js_found:
-            # No JS runtime — use Android+web player clients (no JS needed)
-            opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
+        # Always force JS-free player clients.
+        # The 'web' client now requires a JavaScript PO-token; using it without
+        # a JS runtime causes yt-dlp to spam warnings and hang while retrying.
+        # android / ios / tv_embedded work natively without any JS runtime.
+        opts["extractor_args"] = {
+            "youtube": {"player_client": ["android", "ios", "tv_embedded"]}
+        }
         return opts
 
     _DD_PLACEHOLDER = "— กดดึงข้อมูลก่อน —"
