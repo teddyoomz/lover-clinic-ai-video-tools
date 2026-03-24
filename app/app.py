@@ -659,7 +659,7 @@ def _make_cropper_html(img) -> str:
     margin-top:5px;overflow:hidden;
   }}
   /* ── Section row ────────────────────────────── */
-  .lc-section {{display:flex;align-items:stretch;border-bottom:1px solid #111;overflow:hidden;min-width:0;}}
+  .lc-section {{display:flex;align-items:flex-start;border-bottom:1px solid #111;}}
   .lc-section:last-child {{border-bottom:none;}}
   .lc-section-lbl {{
     display:flex;align-items:center;justify-content:flex-end;
@@ -669,17 +669,14 @@ def _make_cropper_html(img) -> str:
     padding:0 clamp(4px,1vw,7px);flex-shrink:0;
     border-right:1px solid #111;background:#070707;
   }}
-  /* Scrollable content — nowrap so items never cascade messily */
+  /* Content rows wrap — buttons never overflow the container */
   .lc-content {{
     display:flex;align-items:center;
-    gap:clamp(2px,0.5vw,4px);
+    gap:clamp(3px,0.7vw,5px);
     padding:clamp(4px,1vw,6px) clamp(5px,1.2vw,8px);
-    overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;
-    flex:1;min-width:0;flex-wrap:nowrap;
+    flex:1;min-width:0;flex-wrap:wrap;overflow:visible;
+    row-gap:clamp(3px,0.7vw,5px);
   }}
-  .lc-content::-webkit-scrollbar {{display:none;}}
-  /* Social wraps (chips are small, wrapping is fine here) */
-  .lc-section-social .lc-content {{flex-wrap:wrap;overflow-x:visible;}}
   /* ── Pill group ─────────────────────────────── */
   .lc-grp {{
     display:flex;background:#0d0d0d;border:1px solid #1c1c1c;
@@ -1076,6 +1073,42 @@ LIGHTBOX_JS = """
     }
   }, true); // capture phase — fires before Gradio's own handlers
 
+  // ── Fix Gradio tab overflow ─────────────────────────────────────────────
+  // Gradio 6 uses handle_menu_overflow() which calls
+  //   tab_nav_el.getBoundingClientRect().width
+  // to decide which tabs fit. We override that method on the element so it
+  // returns 9999, causing Gradio to mark ALL tabs as visible_tabs.
+  // The "..." overflow span is a SIBLING of div[role="tablist"], not inside it.
+  (function() {
+    function _fixTabOverflow() {
+      var tabNav = document.querySelector('[role="tablist"]');
+      if (!tabNav) { setTimeout(_fixTabOverflow, 400); return; }
+      if (tabNav._lcTabFixed) return;
+      tabNav._lcTabFixed = true;
+
+      // Override getBoundingClientRect so Gradio thinks all tabs fit
+      tabNav.getBoundingClientRect = function() {
+        var r = Element.prototype.getBoundingClientRect.call(this);
+        return {
+          x: r.x, y: r.y, width: 9999, height: r.height,
+          top: r.top, right: r.left + 9999, bottom: r.bottom, left: r.left,
+          toJSON: function() { return this; }
+        };
+      };
+
+      // Hide the overflow "..." span (sibling of the tablist)
+      var wrapper = tabNav.closest('.tab-wrapper');
+      if (wrapper) {
+        var span = wrapper.querySelector('span');
+        if (span) span.style.setProperty('display', 'none', 'important');
+      }
+
+      // Trigger Gradio's overflow re-computation
+      window.dispatchEvent(new Event('resize'));
+    }
+    setTimeout(_fixTabOverflow, 800);
+  })();
+
 })();
 """
 
@@ -1154,6 +1187,15 @@ footer { display: none !important; }
 }
 
 /* ── Tab nav ── */
+/* The tab-wrapper has a fixed height that clips wrapped rows — override it.
+   Gradio CSS uses .tab-wrapper.svelte-11gaq1 (specificity 0,2,0).
+   We beat it with div.tab-wrapper + !important (same specificity, later source). */
+.tab-wrapper.svelte-11gaq1 {
+    height: auto !important;
+    padding-bottom: 0 !important;
+    flex-wrap: wrap !important;
+}
+/* The tablist itself must allow wrapping and be visible */
 div[role="tablist"] {
     background: var(--bg-base) !important;
     border-bottom: 1px solid var(--bd) !important;
@@ -1163,9 +1205,17 @@ div[role="tablist"] {
     flex-wrap: wrap !important;
     justify-content: center !important;
     overflow: visible !important;
+    height: auto !important;
+    width: 100% !important;
 }
-/* Hide Gradio's "..." overflow button — we wrap instead */
-div[role="tablist"] > button:not([role="tab"]) {
+/* Hide Gradio's "..." overflow span (it is a SIBLING of div[role="tablist"],
+   not inside it — so target it as .tab-wrapper > span) */
+.tab-wrapper.svelte-11gaq1 > span,
+.tab-wrapper > span:last-child {
+    display: none !important;
+}
+/* Hide the internal ::after border line — our div[role="tablist"] border-bottom covers it */
+.tab-container.svelte-11gaq1::after {
     display: none !important;
 }
 
