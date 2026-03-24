@@ -1709,12 +1709,13 @@ CROP_INIT_JS = """
     var wrapEl = canvas.parentElement;
     var maxW   = (wrapEl ? wrapEl.clientWidth : 600) - 14;
     if (!maxW || maxW < 10) maxW = 600;
-    // Natural height = image height scaled to fit width, capped at 55vh
-    var _natH = Math.round(origH * Math.min(1, maxW / origW));
-    var maxH  = Math.min(_natH, Math.round(window.innerHeight * 0.55));
+    // maxH = longest side of image scaled to fit available width
+    // (keeps wrap stable during rotation — neither portrait nor landscape overflows)
+    var _longSide = Math.max(origW, origH);
+    var maxH      = Math.round(_longSide * Math.min(1, maxW / _longSide));
     if (maxH < 160) maxH = 160;
-    // Fix wrap height once — stays stable through rotation & zoom
-    if (wrapEl) wrapEl.style.height = (maxH + 14) + 'px';
+    // min-height only — wrap can still grow when zooming
+    if (wrapEl) wrapEl.style.minHeight = (maxH + 14) + 'px';
     var scale = Math.min(1, maxW / origW, maxH / origH);
 
     // ── Zoom ──────────────────────────────────────────────
