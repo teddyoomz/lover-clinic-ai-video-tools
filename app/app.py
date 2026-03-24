@@ -453,11 +453,38 @@ def _free_upsampler_vram(upsampler):
         pass
 
 
+def _find_ffmpeg():
+    """Return (exe_path, env) for a working ffmpeg, or (None, None)."""
+    import shutil as _sh
+    candidates = [
+        r"C:\ffmpeg\bin\ffmpeg.exe",
+        r"C:\Users\oomzp\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe",
+    ]
+    found = _sh.which("ffmpeg")
+    if found:
+        candidates.append(found)
+    for exe in candidates:
+        if not os.path.isfile(exe):
+            continue
+        exe_dir = str(Path(exe).parent)
+        env = os.environ.copy()
+        env["PATH"] = exe_dir + os.pathsep + env.get("PATH", "")
+        try:
+            r = subprocess.run([exe, "-version"], capture_output=True, env=env, timeout=5)
+            if r.returncode == 0:
+                return exe, env
+        except Exception:
+            pass
+    return None, None
+
+
 def upscale_video(video_path, scale, model_type, output_dir, progress=gr.Progress()):
     if video_path is None:
         return None, "⚠️ Please upload a video first."
     upsampler = None
     tmpdir = None
+    cap = None
+    writer = None
     try:
         progress(0.05, desc="Loading model…")
         _video_model_map = {
@@ -466,7 +493,6 @@ def upscale_video(video_path, scale, model_type, output_dir, progress=gr.Progres
             "Anime / Cartoon":        "anime",
         }
         mt = _video_model_map.get(model_type, "general")
-        # general-fast and anime are 4x-only models
         actual_scale = 4 if mt in ("anime", "general-fast") else int(scale)
         upsampler = get_realesrgan(scale=actual_scale, model_type=mt)
         try:
@@ -475,104 +501,75 @@ def upscale_video(video_path, scale, model_type, output_dir, progress=gr.Progres
             _actual_dev = get_device()
         logger.info(f"upscale_video: model={mt} scale={actual_scale}x device={_actual_dev}")
 
-        tmpdir = tempfile.mkdtemp()
-        frames_dir = os.path.join(tmpdir, "frames")
-        out_dir = os.path.join(tmpdir, "out")
-        os.makedirs(frames_dir)
-        os.makedirs(out_dir)
-
-        progress(0.1, desc="Reading video…")
         cap = cv2.VideoCapture(video_path)
-        fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
-        frames = []
-        idx = 0
+        fps   = cap.get(cv2.CAP_PROP_FPS) or 24.0
+        total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT)) or 1
+
+        tmpdir    = tempfile.mkdtemp()
+        raw_video = os.path.join(tmpdir, "raw.mp4")
+        out_video = os.path.join(tmpdir, "output.mp4")
+
+        # ── STREAM: read frame → GPU → VideoWriter  (no intermediate PNG files) ──
+        # Old approach wrote every frame as PNG (~95 MB each at 4x 1080p) causing
+        # gigabytes of disk I/O.  Now we stream directly into a VideoWriter.
+        n = 0
+        progress(0.1, desc="Processing frames…")
         while True:
-            ret, frame = cap.read()
+            ret, frame_bgr = cap.read()
             if not ret:
                 break
-            fp = os.path.join(frames_dir, f"frame_{idx:08d}.png")
-            cv2.imwrite(fp, frame)
-            frames.append(fp)
-            idx += 1
-        cap.release()
-
-        if not frames:
-            return None, "❌ Could not read video frames."
-
-        out_paths = []
-        for i, fp in enumerate(frames):
-            progress(0.1 + 0.75 * (i / len(frames)),
-                     desc=f"Processing frame {i+1}/{len(frames)}…")
-            frame_bgr = cv2.imread(fp)
             out_frame, _ = upsampler.enhance(frame_bgr, outscale=actual_scale)
-            op = os.path.join(out_dir, f"frame_{i:08d}.png")
-            cv2.imwrite(op, out_frame)
-            out_paths.append(op)
-            # Release CUDA pool every 10 frames to prevent VRAM fragmentation
-            if (i + 1) % 10 == 0:
+            if writer is None:
+                h, w = out_frame.shape[:2]
+                writer = cv2.VideoWriter(
+                    raw_video, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h)
+                )
+            writer.write(out_frame)
+            n += 1
+            progress(0.1 + 0.85 * (n / total), desc=f"Frame {n}/{total}…")
+            if n % 10 == 0:
                 try:
                     import torch
                     if torch.cuda.is_available():
                         torch.cuda.empty_cache()
                 except Exception:
                     pass
+        cap.release();  cap = None
+        if writer:
+            writer.release(); writer = None
 
-        progress(0.9, desc="Assembling video…")
-        raw_video = os.path.join(tmpdir, "raw.mp4")
-        out_video = os.path.join(tmpdir, "output.mp4")
+        if n == 0:
+            return None, "❌ Could not read video frames."
 
-        # Step 1: assemble frames → raw_video with cv2 (mp4v)
-        sample = cv2.imread(out_paths[0])
-        h, w = sample.shape[:2]
-        writer = cv2.VideoWriter(
-            raw_video,
-            cv2.VideoWriter_fourcc(*"mp4v"),
-            fps, (w, h)
-        )
-        for op in out_paths:
-            writer.write(cv2.imread(op))
-        writer.release()
-
-        # Step 2: re-encode to H.264 with ffmpeg so browser can play it
-        def _find_ffmpeg():
-            """Return (exe_path, env) for a working ffmpeg with libx264."""
-            candidates = [
-                r"C:\ffmpeg\bin\ffmpeg.exe",
-                r"C:\Users\oomzp\AppData\Local\Microsoft\WinGet\Links\ffmpeg.exe",
-            ]
-            import shutil as _sh
-            found = _sh.which("ffmpeg")
-            if found:
-                candidates.append(found)
-            for exe in candidates:
-                if not os.path.isfile(exe):
-                    continue
-                exe_dir = str(Path(exe).parent)
-                env = os.environ.copy()
-                env["PATH"] = exe_dir + os.pathsep + env.get("PATH", "")
+        # ── H.264 re-encode + preserve original audio ──────────────────────────
+        progress(0.97, desc="Encoding…")
+        ffmpeg_exe, ffmpeg_env = _find_ffmpeg()
+        if ffmpeg_exe:
+            # Try with audio stream from original; fall back to video-only
+            for cmd in [
+                [ffmpeg_exe, "-y",
+                 "-i", raw_video, "-i", video_path,
+                 "-map", "0:v:0", "-map", "1:a:0?",
+                 "-c:v", "libx264", "-preset", "fast",
+                 "-crf", "18", "-pix_fmt", "yuv420p",
+                 "-movflags", "+faststart", out_video],
+                [ffmpeg_exe, "-y",
+                 "-i", raw_video,
+                 "-c:v", "libx264", "-preset", "fast",
+                 "-crf", "18", "-pix_fmt", "yuv420p",
+                 "-movflags", "+faststart", out_video],
+            ]:
                 try:
-                    r = subprocess.run([exe, "-version"], capture_output=True, env=env, timeout=5)
-                    if r.returncode == 0:
-                        return exe, env
-                except Exception:
-                    pass
-            return None, None
-
-        try:
-            ffmpeg_exe, ffmpeg_env = _find_ffmpeg()
-            if not ffmpeg_exe:
-                raise RuntimeError("No working ffmpeg found")
-            subprocess.run([
-                ffmpeg_exe, "-y",
-                "-i", raw_video,
-                "-c:v", "libx264", "-preset", "medium",
-                "-crf", "18", "-pix_fmt", "yuv420p",
-                out_video
-            ], check=True, capture_output=True, env=ffmpeg_env)
-            logger.info(f"ffmpeg H.264 encode OK (exe={ffmpeg_exe})")
-        except Exception as fe:
-            stderr = getattr(fe, "stderr", b"")
-            logger.warning(f"ffmpeg H.264 encode failed: {stderr[-300:] if stderr else fe} — using raw mp4v")
+                    subprocess.run(cmd, check=True, capture_output=True,
+                                   env=ffmpeg_env, timeout=600)
+                    logger.info(f"ffmpeg encode OK")
+                    break
+                except Exception as fe:
+                    logger.warning(f"ffmpeg cmd failed: {getattr(fe,'stderr',b'')[-200:]}")
+            else:
+                out_video = raw_video
+        else:
+            logger.warning("ffmpeg not found — using raw mp4v")
             out_video = raw_video
 
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -581,16 +578,16 @@ def upscale_video(video_path, scale, model_type, output_dir, progress=gr.Progres
         shutil.copy2(out_video, final_path)
 
         progress(1.0, desc="Done!")
-        logger.info(f"upscale_video done — returning path: {final_path!r}")
+        logger.info(f"upscale_video done — {final_path!r}")
         return gr.update(value=final_path, visible=True), f"✅ Video upscaled {actual_scale}x — saved to {final_path}"
     except Exception as e:
         logger.error(f"upscale_video failed: {e}\n{traceback.format_exc()}")
         return gr.update(value=None, visible=True), f"❌ Error: {e}"
     finally:
-        # Always free large CUDA tensors and release VRAM pool after video processing.
-        # Without this, the RealESRGANer instance (which is cached) keeps self.img and
-        # self.output (~190 MB of CUDA tensors) alive, fragmenting VRAM across calls and
-        # causing subsequent GPU allocations to fail or fall back to CPU.
+        if cap is not None:
+            cap.release()
+        if writer is not None:
+            writer.release()
         _free_upsampler_vram(upsampler)
         if tmpdir:
             shutil.rmtree(tmpdir, ignore_errors=True)
