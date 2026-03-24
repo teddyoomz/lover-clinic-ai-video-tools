@@ -625,101 +625,121 @@ def _make_cropper_html(img) -> str:
     w, h = img.size
     return f"""
 <style>
-  #lc-editor{{
+  /* ── Reset: override Gradio's button globals ── */
+  #lc-editor button {{
+    -webkit-appearance:none!important;appearance:none!important;
+    box-sizing:border-box!important;margin:0!important;
+    line-height:1.2!important;outline:none!important;
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif!important;
+  }}
+  #lc-editor {{
     font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
     color:#e2e8f0;user-select:none;
   }}
-  /* ── Canvas area ─────────────────────────── */
-  #lc-crop-wrap{{
+  /* ── Canvas ─────────────────────────────────── */
+  #lc-crop-wrap {{
     background:#050505;border:1px solid #1c1c1c;border-radius:10px;
-    padding:8px;display:flex;justify-content:center;align-items:center;overflow:auto;
+    padding:6px;display:flex;justify-content:center;align-items:center;overflow:auto;
   }}
-  #lc-canvas{{display:block;cursor:crosshair;border-radius:3px;max-width:100%;}}
-  /* ── Info bar ────────────────────────────── */
-  #lc-infobar{{
-    display:flex;align-items:center;justify-content:space-between;
+  #lc-canvas {{display:block;cursor:crosshair;border-radius:3px;max-width:100%;}}
+  /* ── Info bar ────────────────────────────────── */
+  #lc-infobar {{
+    display:flex;align-items:center;justify-content:space-between;gap:8px;
     background:#0a0a0a;border:1px solid #181818;border-radius:7px;
-    padding:4px 12px;margin-top:5px;
+    padding:3px 10px;margin-top:4px;overflow:hidden;
   }}
-  #lc-crop-info{{font-size:10.5px;font-variant-numeric:tabular-nums;color:#4b5563;}}
-  #lc-hint{{font-size:9.5px;color:#2d3340;}}
-  /* ── Toolbar wrapper ─────────────────────── */
-  #lc-toolbar{{
+  #lc-crop-info {{
+    font-size:10px;font-variant-numeric:tabular-nums;color:#4b5563;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap;
+  }}
+  #lc-hint {{font-size:9px;color:#2d3340;white-space:nowrap;flex-shrink:0;}}
+  /* ── Toolbar ─────────────────────────────────── */
+  #lc-toolbar {{
     background:#090909;border:1px solid #1c1c1c;border-radius:10px;
-    margin-top:6px;overflow:hidden;
+    margin-top:5px;overflow:hidden;
   }}
-  /* ── Each section row ────────────────────── */
-  .lc-section{{
-    display:flex;align-items:stretch;border-bottom:1px solid #141414;
-  }}
-  .lc-section:last-child{{border-bottom:none;}}
-  /* Left label column */
-  .lc-section-lbl{{
+  /* ── Section row ────────────────────────────── */
+  .lc-section {{display:flex;align-items:stretch;border-bottom:1px solid #111;}}
+  .lc-section:last-child {{border-bottom:none;}}
+  .lc-section-lbl {{
     display:flex;align-items:center;justify-content:flex-end;
-    font-size:7.5px;font-weight:800;letter-spacing:.14em;
-    text-transform:uppercase;color:#262d3a;
-    width:52px;min-width:52px;
-    padding:0 8px;flex-shrink:0;
-    border-right:1px solid #141414;
-    background:#070707;
+    font-size:clamp(6px,1.5vw,7.5px);font-weight:800;letter-spacing:.12em;
+    text-transform:uppercase;color:#252d3a;
+    width:clamp(32px,7vw,46px);min-width:clamp(32px,7vw,46px);
+    padding:0 clamp(4px,1vw,7px);flex-shrink:0;
+    border-right:1px solid #111;background:#070707;
   }}
-  /* Scrollable content area */
-  .lc-content{{
-    display:flex;align-items:center;gap:4px;
-    padding:5px 8px;
+  /* Scrollable content — nowrap so items never cascade messily */
+  .lc-content {{
+    display:flex;align-items:center;
+    gap:clamp(2px,0.5vw,4px);
+    padding:clamp(4px,1vw,6px) clamp(5px,1.2vw,8px);
     overflow-x:auto;scrollbar-width:none;-ms-overflow-style:none;
-    flex:1;
+    flex:1;min-width:0;flex-wrap:nowrap;
   }}
-  .lc-content::-webkit-scrollbar{{display:none;}}
-  /* Social row wraps instead of scrolls */
-  .lc-section-social .lc-content{{flex-wrap:wrap;overflow-x:visible;gap:4px;}}
-  /* ── Button groups (pill style) ─────────── */
-  .lc-grp{{
+  .lc-content::-webkit-scrollbar {{display:none;}}
+  /* Social wraps (chips are small, wrapping is fine here) */
+  .lc-section-social .lc-content {{flex-wrap:wrap;overflow-x:visible;}}
+  /* ── Pill group ─────────────────────────────── */
+  .lc-grp {{
     display:flex;background:#0d0d0d;border:1px solid #1c1c1c;
-    border-radius:7px;overflow:hidden;flex-shrink:0;
+    border-radius:6px;overflow:hidden;flex-shrink:0;
   }}
-  .lc-btn-pill{{
-    background:transparent;color:#3a414f;
-    border:none;border-right:1px solid #181818;
-    padding:4px 9px;font-size:10px;font-weight:600;
-    cursor:pointer;transition:background .14s,color .14s;white-space:nowrap;
+  /* ── ALL pill / ratio buttons — high-specificity + !important ── */
+  #lc-editor .lc-btn-pill,
+  #lc-editor .lc-ratio-btn {{
+    background:transparent!important;color:#3a414f!important;
+    border:none!important;border-right:1px solid #181818!important;
+    padding:clamp(3px,0.7vw,5px) clamp(5px,1.3vw,9px)!important;
+    font-size:clamp(9px,2vw,11px)!important;font-weight:600!important;
+    cursor:pointer!important;white-space:nowrap!important;flex-shrink:0!important;
+    transition:background .14s,color .14s!important;
   }}
-  .lc-btn-pill:last-child{{border-right:none;}}
-  .lc-btn-pill:hover{{background:#161616;color:#c9cdd4;}}
-  .lc-btn-pill.lc-active{{background:#b91c1c;color:#fff;}}
-  /* ── Standalone action buttons ───────────── */
-  .lc-btn{{
-    background:#0f0f0f;color:#4b5563;
-    border:1px solid #1c1c1c;border-radius:6px;
-    padding:4px 9px;font-size:10px;font-weight:600;
-    cursor:pointer;transition:all .14s;white-space:nowrap;flex-shrink:0;
+  #lc-editor .lc-btn-pill:last-child,
+  #lc-editor .lc-ratio-btn:last-child {{border-right:none!important;}}
+  #lc-editor .lc-btn-pill:hover,
+  #lc-editor .lc-ratio-btn:hover {{background:#161616!important;color:#c9cdd4!important;}}
+  #lc-editor .lc-btn-pill.lc-active,
+  #lc-editor .lc-ratio-btn.lc-active {{background:#b91c1c!important;color:#fff!important;}}
+  /* ── Standalone action buttons ──────────────── */
+  #lc-editor .lc-btn {{
+    background:#0f0f0f!important;color:#4b5563!important;
+    border:1px solid #1c1c1c!important;border-radius:6px!important;
+    padding:clamp(3px,0.7vw,5px) clamp(5px,1.3vw,9px)!important;
+    font-size:clamp(9px,2vw,11px)!important;font-weight:600!important;
+    cursor:pointer!important;white-space:nowrap!important;flex-shrink:0!important;
+    transition:all .14s!important;
   }}
-  .lc-btn:hover{{background:#1a1a1a;color:#c9cdd4;border-color:#272727;}}
-  .lc-btn.lc-active{{background:#15803d;color:#fff;border-color:#166534;}}
-  /* ── Vertical divider ────────────────────── */
-  .lc-vdiv{{width:1px;height:18px;background:#1c1c1c;margin:0 4px;flex-shrink:0;}}
-  /* ── Zoom value ──────────────────────────── */
-  #lc-zoom-val{{
-    font-size:10px;font-weight:700;color:#3a414f;
-    min-width:34px;text-align:center;flex-shrink:0;
+  #lc-editor .lc-btn:hover {{background:#1a1a1a!important;color:#c9cdd4!important;border-color:#272727!important;}}
+  #lc-editor .lc-btn.lc-active {{background:#15803d!important;color:#fff!important;border-color:#166534!important;}}
+  /* ── Zoom +/- (slightly wider click target) ─── */
+  #lc-editor #lc-btn-zoom-out,
+  #lc-editor #lc-btn-zoom-in {{
+    padding:clamp(3px,0.7vw,5px) clamp(7px,1.5vw,11px)!important;
+    font-size:clamp(11px,2.5vw,14px)!important;
   }}
-  /* ── Social chips ────────────────────────── */
-  .lc-chip{{
-    display:inline-flex;align-items:center;gap:3px;
-    background:#0a0a0a;color:#4b5563;
-    border:1px solid #1c1c1c;border-radius:9999px;
-    padding:3px 9px;font-size:9.5px;font-weight:600;
-    cursor:pointer;transition:all .14s;white-space:nowrap;flex-shrink:0;
+  /* ── Vertical divider ────────────────────────── */
+  .lc-vdiv {{
+    width:1px;height:clamp(14px,3vw,18px);
+    background:#1c1c1c;margin:0 clamp(2px,0.5vw,4px);flex-shrink:0;
   }}
-  .lc-chip:hover{{background:#161616;color:#c9cdd4;border-color:#272727;}}
-  .lc-chip.lc-active{{background:#b91c1c;color:#fff;border-color:#b91c1c;}}
-  /* legacy compat — ratio buttons may use old class names */
-  .lc-ratio-btn{{background:transparent;color:#3a414f;border:none;border-right:1px solid #181818;
-    padding:4px 9px;font-size:10px;font-weight:600;cursor:pointer;
-    transition:background .14s,color .14s;white-space:nowrap;}}
-  .lc-ratio-btn:last-child{{border-right:none;}}
-  .lc-ratio-btn:hover{{background:#161616;color:#c9cdd4;}}
-  .lc-ratio-btn.lc-active{{background:#b91c1c;color:#fff;}}
+  /* ── Zoom value label ────────────────────────── */
+  #lc-zoom-val {{
+    font-size:clamp(9px,2vw,11px)!important;font-weight:700;color:#3a414f;
+    min-width:clamp(26px,5vw,34px);text-align:center;flex-shrink:0;
+  }}
+  /* ── Social chips ────────────────────────────── */
+  #lc-editor .lc-chip {{
+    display:inline-flex!important;align-items:center!important;gap:2px!important;
+    background:#0a0a0a!important;color:#4b5563!important;
+    border:1px solid #1c1c1c!important;border-radius:9999px!important;
+    padding:clamp(2px,0.5vw,4px) clamp(5px,1.2vw,9px)!important;
+    font-size:clamp(8.5px,1.8vw,10px)!important;font-weight:600!important;
+    cursor:pointer!important;white-space:nowrap!important;flex-shrink:0!important;
+    transition:all .14s!important;
+  }}
+  #lc-editor .lc-chip:hover {{background:#161616!important;color:#c9cdd4!important;border-color:#272727!important;}}
+  #lc-editor .lc-chip.lc-active {{background:#b91c1c!important;color:#fff!important;border-color:#b91c1c!important;}}
 </style>
 
 <div id="lc-editor">
@@ -733,13 +753,13 @@ def _make_cropper_html(img) -> str:
   <!-- Info bar -->
   <div id="lc-infobar">
     <div id="lc-crop-info">⏳ กำลังเตรียม...</div>
-    <div id="lc-hint">ลากเพื่อเลือก · ลากขอบปรับขนาด · ลากกลางเพื่อย้าย</div>
+    <div id="lc-hint">ลากเพื่อเลือก · ลากขอบ · ลากกลาง</div>
   </div>
 
   <!-- ══ Toolbar ══ -->
   <div id="lc-toolbar">
 
-    <!-- Row 1 · Aspect Ratio -->
+    <!-- Row 1 · Aspect Ratio (scrolls horizontally) -->
     <div class="lc-section">
       <span class="lc-section-lbl">สัดส่วน</span>
       <div class="lc-content">
@@ -756,13 +776,13 @@ def _make_cropper_html(img) -> str:
           <button class="lc-btn-pill" data-ratio="2:3">2:3</button>
         </div>
         <div class="lc-vdiv"></div>
-        <button class="lc-btn" id="lc-btn-swap" title="สลับ Portrait ↔ Landscape">⇄ Swap</button>
+        <button class="lc-btn" id="lc-btn-swap"   title="สลับ Portrait ↔ Landscape">⇄ Swap</button>
         <button class="lc-btn" id="lc-btn-center" title="จัดกึ่งกลาง">⊙ Center</button>
-        <button class="lc-btn" id="lc-btn-reset" title="ล้างการเลือก">✕ Clear</button>
+        <button class="lc-btn" id="lc-btn-reset"  title="ล้างการเลือก">✕ Clear</button>
       </div>
     </div>
 
-    <!-- Row 2 · Tools: Rotate · Flip · Grid · Zoom -->
+    <!-- Row 2 · Tools (scrolls horizontally) -->
     <div class="lc-section">
       <span class="lc-section-lbl">เครื่องมือ</span>
       <div class="lc-content">
@@ -772,27 +792,27 @@ def _make_cropper_html(img) -> str:
           <button class="lc-ratio-btn" id="lc-btn-rot-180" title="หมุน 180°">↕ 180°</button>
         </div>
         <div class="lc-vdiv"></div>
-        <button class="lc-btn" id="lc-btn-flip-h"      title="กระจกซ้าย-ขวา">↔ พลิก H</button>
-        <button class="lc-btn" id="lc-btn-flip-v"      title="กระจกบน-ล่าง">↕ พลิก V</button>
-        <button class="lc-btn" id="lc-btn-xform-reset" title="รีเซ็ต rotate/flip">⟲ Reset</button>
+        <button class="lc-btn" id="lc-btn-flip-h"      title="กระจกซ้าย-ขวา">↔ H</button>
+        <button class="lc-btn" id="lc-btn-flip-v"      title="กระจกบน-ล่าง">↕ V</button>
+        <button class="lc-btn" id="lc-btn-xform-reset" title="รีเซ็ต rotate/flip">⟲</button>
         <div class="lc-vdiv"></div>
         <button class="lc-btn" id="lc-btn-img-grid" title="Grid ทั้งภาพ">⊟ Grid ภาพ</button>
         <button class="lc-btn" id="lc-btn-grid"     title="Grid ในกรอบ Crop">⊞ Grid Crop</button>
         <div class="lc-vdiv"></div>
-        <button class="lc-btn" id="lc-btn-zoom-out" title="ซูมออก" style="padding:4px 7px;font-size:13px;line-height:1;">−</button>
+        <button class="lc-btn" id="lc-btn-zoom-out" title="ซูมออก">−</button>
         <span id="lc-zoom-val">100%</span>
-        <button class="lc-btn" id="lc-btn-zoom-in"  title="ซูมเข้า" style="padding:4px 7px;font-size:13px;line-height:1;">+</button>
+        <button class="lc-btn" id="lc-btn-zoom-in"  title="ซูมเข้า">+</button>
         <button class="lc-btn" id="lc-btn-zoom-fit" title="Fit ภาพเข้าหน้าจอ">⊡ Fit</button>
       </div>
     </div>
 
-    <!-- Row 3 · Social Presets -->
+    <!-- Row 3 · Social Presets (wraps) -->
     <div class="lc-section lc-section-social">
       <span class="lc-section-lbl">Social</span>
       <div class="lc-content">
         <button class="lc-chip" data-ratio="4:5">📷 IG Feed</button>
         <button class="lc-chip" data-ratio="1:1">◻ Square</button>
-        <button class="lc-chip" data-ratio="9:16">📱 Story / Reel</button>
+        <button class="lc-chip" data-ratio="9:16">📱 Story/Reel</button>
         <button class="lc-chip" data-ratio="16:9">▶ YouTube</button>
         <button class="lc-chip" data-ratio="205:78">📘 FB Cover</button>
         <button class="lc-chip" data-ratio="4:1">💼 LinkedIn</button>
