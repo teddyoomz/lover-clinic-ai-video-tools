@@ -762,6 +762,7 @@ def _make_cropper_html(img) -> str:
       <div class="lc-content">
         <div class="lc-grp">
           <button class="lc-btn-pill lc-active" data-ratio="free">Free</button>
+          <button class="lc-btn-pill" data-ratio="orig" title="ล็อคตามอัตราส่วนของภาพต้นฉบับ">Orig</button>
           <button class="lc-btn-pill" data-ratio="1:1">1:1</button>
           <button class="lc-btn-pill" data-ratio="4:3">4:3</button>
           <button class="lc-btn-pill" data-ratio="3:4">3:4</button>
@@ -814,7 +815,7 @@ def _make_cropper_html(img) -> str:
         <button class="lc-chip" data-ratio="205:78">📘 FB Cover</button>
         <button class="lc-chip" data-ratio="4:1">💼 LinkedIn</button>
         <button class="lc-chip" data-ratio="2:3">📌 Pinterest</button>
-        <button class="lc-chip" data-ratio="1200:628">🔗 OG Image</button>
+        <button class="lc-chip" data-ratio="1200:630">🔗 OG Image</button>
       </div>
     </div>
 
@@ -2032,7 +2033,8 @@ CROP_INIT_JS = """
     // ── Toolbar Buttons ───────────────────────────────────
     function setRatio(rStr) {
       if(rStr==='free'){ lockedRatio=null; return; }
-      var p=rStr.split(':'); lockedRatio={w:parseFloat(p[0]),h:parseFloat(p[1])};
+      if(rStr==='orig'){ var dd=displayDims(); lockedRatio={w:dd.w,h:dd.h}; }
+      else { var p=rStr.split(':'); lockedRatio={w:parseFloat(p[0]),h:parseFloat(p[1])}; }
       if(hasSel){
         var w=Math.abs(ex-sx), newH=applyRatioH(w);
         ey=sy+newH*(ey>=sy?1:-1); ey=clamp(ey,0,canvas.height);
