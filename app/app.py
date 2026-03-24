@@ -2306,35 +2306,30 @@ def _build_download_tab(cfg: dict):
 
     # ── Step 1: Fetch quality list ────────────────────────────────────────────
     def _fetch(url):
+        _no = gr.update()
+        _hide_dd  = gr.update(choices=[], value=None, visible=False)
+        _hide_btn = gr.update(visible=False)
+
         url = (url or "").strip()
         if not url or not url.startswith(("http://", "https://")):
-            return (
-                gr.update(value="❌ URL ไม่ถูกต้อง — ต้องขึ้นต้นด้วย http:// หรือ https://", visible=True),
-                gr.update(choices=[], visible=False),
-                {},
-                gr.update(visible=False),
-            )
+            yield (gr.update(value="❌ URL ไม่ถูกต้อง — ต้องขึ้นต้นด้วย http:// หรือ https://", visible=True), _hide_dd, {}, _hide_btn)
+            return
         try:
             import yt_dlp
         except ImportError:
-            return (
-                gr.update(value="❌ ไม่พบ yt-dlp — กรุณากด Fix แล้ว Start ใหม่", visible=True),
-                gr.update(choices=[], visible=False),
-                {},
-                gr.update(visible=False),
-            )
+            yield (gr.update(value="❌ ไม่พบ yt-dlp — กรุณากด Fix แล้ว Start ใหม่", visible=True), _hide_dd, {}, _hide_btn)
+            return
+
+        # Yield "กำลังดึง..." immediately so UI unfreezes and shows activity
+        yield (gr.update(value="⏳ กำลังดึงข้อมูลวีดีโอ...", visible=True), _hide_dd, {}, _hide_btn)
 
         ydl_opts = {**_base_ydl_opts(), "skip_download": True}
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
         except Exception as e:
-            return (
-                gr.update(value=f"❌ ดึงข้อมูลไม่สำเร็จ:\n{str(e)[-400:]}", visible=True),
-                gr.update(choices=[], visible=False),
-                {},
-                gr.update(visible=False),
-            )
+            yield (gr.update(value=f"❌ ดึงข้อมูลไม่สำเร็จ:\n{str(e)[-400:]}", visible=True), _hide_dd, {}, _hide_btn)
+            return
 
         title    = info.get("title", "Unknown")
         duration = info.get("duration") or 0
@@ -2383,7 +2378,7 @@ def _build_download_tab(cfg: dict):
             info_txt += f"  ·  {uploader}"
         info_txt += f"\n⏱ {dur_str}  ·  {len(heights)} ความละเอียด: {h_list}"
 
-        return (
+        yield (
             gr.update(value=info_txt, visible=True),
             gr.update(choices=quality_list, value=quality_list[0], visible=True),
             quality_map,
@@ -2595,6 +2590,7 @@ def _build_download_tab(cfg: dict):
         fn=_fetch,
         inputs=[url_input],
         outputs=[info_out, quality_dd, quality_state, download_btn],
+        stream_every=0.1,
     )
     download_btn.click(
         fn=_download,
