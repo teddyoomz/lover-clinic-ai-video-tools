@@ -400,6 +400,7 @@ def get_gfpganer(upscale_factor: int, enhance_bg: bool):
 def upscale_photo(image, scale, model_type, output_dir, fmt="PNG", progress=gr.Progress()):
     if image is None:
         return None, "⚠️ Please upload an image first."
+    upsampler = None
     try:
         progress(0.1, desc="Loading model…")
         _photo_model_map = {
@@ -410,8 +411,12 @@ def upscale_photo(image, scale, model_type, output_dir, fmt="PNG", progress=gr.P
         mt = _photo_model_map.get(model_type, "general")
         # anime-still and general-fast are 4x-only models
         actual_scale = 4 if mt in ("anime-still", "general-fast") else int(scale)
-        logger.info(f"upscale_photo: model={mt} scale={actual_scale}x device={get_device()}")
         upsampler = get_realesrgan(scale=actual_scale, model_type=mt)
+        try:
+            _actual_dev = next(upsampler.model.parameters()).device
+        except Exception:
+            _actual_dev = get_device()
+        logger.info(f"upscale_photo: model={mt} scale={actual_scale}x device={_actual_dev}")
 
         progress(0.3, desc="Upscaling…")
         img_cv2 = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
@@ -424,11 +429,35 @@ def upscale_photo(image, scale, model_type, output_dir, fmt="PNG", progress=gr.P
     except Exception as e:
         logger.error(f"upscale_photo failed: {e}\n{traceback.format_exc()}")
         return None, f"❌ Error: {e}"
+    finally:
+        _free_upsampler_vram(upsampler)
+
+
+def _free_upsampler_vram(upsampler):
+    """Delete cached CUDA tensors from a RealESRGANer instance and release the VRAM pool.
+    Must be called after every video (or photo) upscale to prevent fragmentation."""
+    if upsampler is None:
+        return
+    # self.img / self.output are large CUDA tensors left over after enhance()
+    for _attr in ("img", "output"):
+        try:
+            delattr(upsampler, _attr)
+        except AttributeError:
+            pass
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+            torch.cuda.empty_cache()
+    except Exception:
+        pass
 
 
 def upscale_video(video_path, scale, model_type, output_dir, progress=gr.Progress()):
     if video_path is None:
         return None, "⚠️ Please upload a video first."
+    upsampler = None
+    tmpdir = None
     try:
         progress(0.05, desc="Loading model…")
         _video_model_map = {
@@ -439,8 +468,12 @@ def upscale_video(video_path, scale, model_type, output_dir, progress=gr.Progres
         mt = _video_model_map.get(model_type, "general")
         # general-fast and anime are 4x-only models
         actual_scale = 4 if mt in ("anime", "general-fast") else int(scale)
-        logger.info(f"upscale_video: model={mt} scale={actual_scale}x device={get_device()}")
         upsampler = get_realesrgan(scale=actual_scale, model_type=mt)
+        try:
+            _actual_dev = next(upsampler.model.parameters()).device
+        except Exception:
+            _actual_dev = get_device()
+        logger.info(f"upscale_video: model={mt} scale={actual_scale}x device={_actual_dev}")
 
         tmpdir = tempfile.mkdtemp()
         frames_dir = os.path.join(tmpdir, "frames")
@@ -464,7 +497,6 @@ def upscale_video(video_path, scale, model_type, output_dir, progress=gr.Progres
         cap.release()
 
         if not frames:
-            shutil.rmtree(tmpdir, ignore_errors=True)
             return None, "❌ Could not read video frames."
 
         out_paths = []
@@ -476,6 +508,14 @@ def upscale_video(video_path, scale, model_type, output_dir, progress=gr.Progres
             op = os.path.join(out_dir, f"frame_{i:08d}.png")
             cv2.imwrite(op, out_frame)
             out_paths.append(op)
+            # Release CUDA pool every 10 frames to prevent VRAM fragmentation
+            if (i + 1) % 10 == 0:
+                try:
+                    import torch
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                except Exception:
+                    pass
 
         progress(0.9, desc="Assembling video…")
         raw_video = os.path.join(tmpdir, "raw.mp4")
@@ -539,7 +579,6 @@ def upscale_video(video_path, scale, model_type, output_dir, progress=gr.Progres
         os.makedirs(output_dir, exist_ok=True)
         final_path = str(Path(output_dir) / f"upscaled_video_{ts}.mp4")
         shutil.copy2(out_video, final_path)
-        shutil.rmtree(tmpdir, ignore_errors=True)
 
         progress(1.0, desc="Done!")
         logger.info(f"upscale_video done — returning path: {final_path!r}")
@@ -547,6 +586,14 @@ def upscale_video(video_path, scale, model_type, output_dir, progress=gr.Progres
     except Exception as e:
         logger.error(f"upscale_video failed: {e}\n{traceback.format_exc()}")
         return gr.update(value=None, visible=True), f"❌ Error: {e}"
+    finally:
+        # Always free large CUDA tensors and release VRAM pool after video processing.
+        # Without this, the RealESRGANer instance (which is cached) keeps self.img and
+        # self.output (~190 MB of CUDA tensors) alive, fragmenting VRAM across calls and
+        # causing subsequent GPU allocations to fail or fall back to CPU.
+        _free_upsampler_vram(upsampler)
+        if tmpdir:
+            shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 def remove_background(image, model_choice, bg_option, custom_bg, output_dir, fmt="PNG",
