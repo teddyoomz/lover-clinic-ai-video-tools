@@ -1495,11 +1495,6 @@ img[src=""], img[src="data:"] { display: none !important; }
   /* Blocks: tighter radius on mobile */
   .block, .form { border-radius: var(--r-md) !important; }
 
-  /* Crop toolbar: smaller chips */
-  .lc-btn-pill, .lc-ratio-btn { padding: 4px 7px !important; font-size: 9.5px !important; }
-  .lc-chip                    { padding: 3px 7px !important; font-size: 9px !important; }
-  .lc-btn, .lc-act            { padding: 4px 7px !important; font-size: 9.5px !important; }
-  #lc-zoom-val                { min-width: 28px !important; font-size: 9.5px !important; }
   #lc-hint      { display: none !important; }
 }
 """
