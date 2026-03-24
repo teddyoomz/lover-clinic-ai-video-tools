@@ -1762,7 +1762,7 @@ CROP_INIT_JS = """
     var lockedRatio = null;         // null = free  |  {w, h}
     var gridMode    = 0; // 0=off  1=rule-of-thirds  2=golden-ratio(φ)  3=diagonal+cross  (crop box)
     var imgGridMode = 0; // same cycle but for the full canvas image
-    var HR = 7;                     // handle radius px
+    var HR = 4;                     // handle radius px
 
     // ── Helpers ───────────────────────────────────────────
     function getPos(e) {
@@ -1905,8 +1905,8 @@ CROP_INIT_JS = """
       var hs=handles();
       for(var i=0;i<hs.length;i++){
         ctx.beginPath(); ctx.arc(hs[i].x,hs[i].y,HR,0,2*Math.PI);
-        ctx.fillStyle='#fff'; ctx.fill();
-        ctx.strokeStyle='#1d4ed8'; ctx.lineWidth=1.5; ctx.stroke();
+        ctx.fillStyle='#111'; ctx.fill();
+        ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=1; ctx.stroke();
       }
       ctx.restore();
     }
