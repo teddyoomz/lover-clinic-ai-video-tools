@@ -1764,12 +1764,25 @@ CROP_INIT_JS = """
     var imgGridMode = 0; // same cycle but for the full canvas image
     var HR = 4;                     // handle radius px
 
+    // ── RAF throttle — prevents flickering during drag ─────
+    var _rafId = null;
+    function scheduleRedraw() {
+      if (_rafId) return;
+      _rafId = requestAnimationFrame(function() { _rafId = null; redraw(); });
+    }
+    var _coordsTimer = null;
+    function scheduleCoords() {
+      if (_coordsTimer) return;
+      _coordsTimer = setTimeout(function() { _coordsTimer = null; updateCoords(); }, 60);
+    }
+
     // ── Helpers ───────────────────────────────────────────
     function getPos(e) {
       var r = canvas.getBoundingClientRect();
       var sc = canvas.width / (canvas.clientWidth || canvas.width);
-      return { x: Math.round((e.clientX-r.left)*sc),
-               y: Math.round((e.clientY-r.top)*sc) };
+      var src = (e.touches && e.touches[0]) ? e.touches[0] : e;
+      return { x: Math.round((src.clientX-r.left)*sc),
+               y: Math.round((src.clientY-r.top)*sc) };
     }
     function clamp(v,lo,hi){ return Math.max(lo, Math.min(hi, v)); }
     function clampAll() {
@@ -1987,7 +2000,8 @@ CROP_INIT_JS = """
           clampAll();
         }
       }
-      redraw();
+      scheduleRedraw();
+      if(hasSel || dragMode!=='draw') scheduleCoords();
     };
 
     canvas.onmouseup = function(e) {
@@ -2003,6 +2017,17 @@ CROP_INIT_JS = """
     canvas.onmouseleave = function(e) {
       if(isDown && dragMode==='draw'){ isDown=false; hasSel=(Math.abs(ex-sx)>4&&Math.abs(ey-sy)>4); redraw(); if(hasSel) updateCoords(); dragMode='draw'; }
     };
+
+    // ── Touch events (mobile) ─────────────────────────────
+    canvas.addEventListener('touchstart', function(e){
+      e.preventDefault(); canvas.onmousedown(e.touches[0]);
+    }, {passive:false});
+    canvas.addEventListener('touchmove', function(e){
+      e.preventDefault(); canvas.onmousemove(e);
+    }, {passive:false});
+    canvas.addEventListener('touchend', function(e){
+      e.preventDefault(); canvas.onmouseup(e.changedTouches ? {clientX:e.changedTouches[0].clientX, clientY:e.changedTouches[0].clientY} : e);
+    }, {passive:false});
 
     // ── Toolbar Buttons ───────────────────────────────────
     function setRatio(rStr) {
