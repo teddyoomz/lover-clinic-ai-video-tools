@@ -1714,9 +1714,8 @@ CROP_INIT_JS = """
     var _longSide = Math.max(origW, origH);
     var maxH      = Math.round(_longSide * Math.min(1, maxW / _longSide));
     if (maxH < 160) maxH = 160;
-    var _wrapMinH = maxH;  // remember for zoom — wrap can't go below this
-    // min-height = longest side fit; wrap grows when zooming
-    if (wrapEl) wrapEl.style.minHeight = _wrapMinH + 'px';
+    // Fixed box height = longest side scaled — never changes on zoom or rotation
+    if (wrapEl) wrapEl.style.height = maxH + 'px';
     var scale = Math.min(1, maxW / origW, maxH / origH);
 
     // ── Zoom ──────────────────────────────────────────────
@@ -1756,8 +1755,6 @@ CROP_INIT_JS = """
         ex=Math.round(ex*fx); ey=Math.round(ey*fy);
       }
       canvas.width=d.w; canvas.height=d.h;
-      // Grow wrap with canvas when zooming (never shrink below minH)
-      if(wrapEl) wrapEl.style.minHeight = Math.max(_wrapMinH, d.h) + 'px';
       redraw(); updateCoords();
       var zEl=document.getElementById('lc-zoom-val');
       if(zEl) zEl.textContent=Math.round(zoomFactor*100)+'%';
