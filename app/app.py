@@ -2408,7 +2408,13 @@ def _build_download_tab(cfg: dict):
 
     # ── Helper: base yt-dlp options ──────────────────────────────────────────
     def _base_ydl_opts():
-        opts: dict = {"quiet": True, "no_warnings": True, "color": False}
+        opts: dict = {
+            "quiet": True, "no_warnings": True, "color": False,
+            # Prevent infinite hang on slow / unreachable servers
+            "socket_timeout": 30,
+            "retries": 3,
+            "fragment_retries": 5,
+        }
         ffmpeg = _ffmpeg_bin()
         if ffmpeg:
             opts["ffmpeg_location"] = ffmpeg
@@ -2434,6 +2440,7 @@ def _build_download_tab(cfg: dict):
 
     # ── Step 1b: Fetch quality list (runs after loading state shown) ──────────
     def _fetch(url):
+        import threading as _threading
         _reset_dd = gr.update(choices=[_DD_PLACEHOLDER], value=_DD_PLACEHOLDER, interactive=False)
         _hide_btn = gr.update(interactive=False)
 
@@ -2446,11 +2453,25 @@ def _build_download_tab(cfg: dict):
             return (gr.update(value="❌ ไม่พบ yt-dlp — กรุณากด Fix แล้ว Start ใหม่", visible=True), _reset_dd, {}, _hide_btn)
 
         ydl_opts = {**_base_ydl_opts(), "skip_download": True}
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
-        except Exception as e:
-            return (gr.update(value=f"❌ ดึงข้อมูลไม่สำเร็จ:\n{str(e)[-400:]}", visible=True), _reset_dd, {}, _hide_btn)
+        _result: dict = {"info": None, "error": None}
+
+        def _run_fetch():
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    _result["info"] = ydl.extract_info(url, download=False)
+            except Exception as e:
+                _result["error"] = str(e)
+
+        t = _threading.Thread(target=_run_fetch, daemon=True)
+        t.start()
+        t.join(timeout=60)  # hard cap — prevents UI from hanging forever
+
+        if t.is_alive():
+            return (gr.update(value="❌ ดึงข้อมูลหมดเวลา (60 วินาที) — กรุณาลองใหม่หรือตรวจสอบ URL", visible=True), _reset_dd, {}, _hide_btn)
+        if _result["error"]:
+            return (gr.update(value=f"❌ ดึงข้อมูลไม่สำเร็จ:\n{_result['error'][-400:]}", visible=True), _reset_dd, {}, _hide_btn)
+
+        info = _result["info"]
 
         title    = info.get("title", "Unknown")
         duration = info.get("duration") or 0
