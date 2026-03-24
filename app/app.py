@@ -1714,6 +1714,8 @@ CROP_INIT_JS = """
     var _longSide = Math.max(origW, origH);
     var maxH      = Math.round(_longSide * Math.min(1, maxW / _longSide));
     if (maxH < 160) maxH = 160;
+    // Lock wrap to fixed size — zoom only moves canvas inside the box
+    if (wrapEl) wrapEl.style.height = (maxH + 14) + 'px';
     var scale = Math.min(1, maxW / origW, maxH / origH);
 
     // ── Zoom ──────────────────────────────────────────────
@@ -1723,8 +1725,6 @@ CROP_INIT_JS = """
     var zoomFactor = (_savedZoom && zoomSteps.indexOf(_savedZoom) >= 0) ? _savedZoom : 1.0;
     canvas.width  = Math.round(origW * baseScale * zoomFactor);
     canvas.height = Math.round(origH * baseScale * zoomFactor);
-    // Sync wrap height to canvas height — keeps box proportional to image at all zoom levels
-    if (wrapEl) wrapEl.style.height = (canvas.height + 14) + 'px';
 
     // ── Transform state ───────────────────────────────────
     var rotation = 0;      // 0 | 90 | 180 | 270  (degrees CW)
@@ -1755,8 +1755,6 @@ CROP_INIT_JS = """
         ex=Math.round(ex*fx); ey=Math.round(ey*fy);
       }
       canvas.width=d.w; canvas.height=d.h;
-      // Keep wrap height in sync with canvas height so box scales at same ratio as image
-      if(wrapEl) wrapEl.style.height=(d.h+14)+'px';
       redraw(); updateCoords();
       var zEl=document.getElementById('lc-zoom-val');
       if(zEl) zEl.textContent=Math.round(zoomFactor*100)+'%';
