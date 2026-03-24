@@ -1,6 +1,13 @@
 module.exports = {
   run: [
-    // Step 1: Install Python deps + auto-detect GPU + install correct torch
+    // Step 1: Install nodejs via conda (needed by yt-dlp as JS runtime for YouTube)
+    {
+      method: "shell.run",
+      params: {
+        message: "conda install -c conda-forge nodejs -y"
+      }
+    },
+    // Step 2: Install Python deps + auto-detect GPU + install correct torch
     {
       method: "shell.run",
       params: {

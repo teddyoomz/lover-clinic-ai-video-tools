@@ -2292,11 +2292,17 @@ def _build_download_tab(cfg: dict):
         ffmpeg = _ffmpeg_bin()
         if ffmpeg:
             opts["ffmpeg_location"] = ffmpeg
+        # js_runtimes must be a list of "runtime:path" strings (yt-dlp API format)
+        js_found = False
         for bin_name, rt_key in [("node", "nodejs"), ("nodejs", "nodejs"), ("deno", "deno")]:
             p = _sh.which(bin_name)
             if p:
-                opts["js_runtimes"] = {rt_key: {"path": p}}
+                opts["js_runtimes"] = [f"{rt_key}:{p}"]
+                js_found = True
                 break
+        if not js_found:
+            # No JS runtime available — use Android player client which skips JS
+            opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
         return opts
 
     # ── Step 1: Fetch quality list ────────────────────────────────────────────
