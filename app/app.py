@@ -96,7 +96,7 @@ _SETTINGS_DEFAULTS: dict = {
     "vid_out_dir": None,
     # Remove BG
     "bg_model":   "BiRefNet — General (Best)",
-    "bg_option":  "Transparent",
+    "bg_option":  "โปร่งใส",
     "bg_fmt":     "PNG",
     "bg_out_dir": None,
     # Enhance
@@ -147,6 +147,17 @@ def _load_settings() -> dict:
     _valid_up_models = {"General Photo", "General (Lightweight)", "Anime / Illustration"}
     if cfg.get("up_model") not in _valid_up_models:
         cfg["up_model"] = "General Photo"
+
+    _valid_bg_options = {"โปร่งใส", "ขาว", "ดำ", "แดง", "รูปภาพเอง"}
+    _bg_option_migration = {
+        "Transparent": "โปร่งใส",
+        "White": "ขาว",
+        "Black": "ดำ",
+        "Red": "แดง",
+        "Custom Image": "รูปภาพเอง",
+    }
+    if cfg.get("bg_option") not in _valid_bg_options:
+        cfg["bg_option"] = _bg_option_migration.get(cfg.get("bg_option"), "โปร่งใส")
 
     # fill None dirs with real defaults
     _dir_defaults = {
