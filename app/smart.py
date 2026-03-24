@@ -188,70 +188,56 @@ class SmartSetup:
 
     # ── Targeted package repair ────────────────────────────────
     def _repair_imports(self, failed: list):
-        """Given a list of failed import keys, run targeted repairs."""
+        """Targeted repairs for failed imports.
+
+        ROOT FIX: always use --reinstall-package X (not --force-reinstall) so
+        that already-installed packages — especially torch and numpy — are kept
+        at their current versions.  --force-reinstall lets uv re-resolve the
+        full dependency graph from scratch, which pulls in a plain PyPI torch
+        (no CUDA tag) that silently overwrites our CUDA build.
+        """
         repaired = set()
 
-        # --- pydantic pin (often breaks after gradio update) ---
-        if not any(k in ("gradio",) for k in failed):
-            pass  # only if gradio import ok
+        # Pydantic pin — gradio and basicsr both need a stable pydantic version
         self.p(c(Y, "  📌 Pinning pydantic==2.10.6 ..."))
         self._run(["uv", "pip", "install", "pydantic==2.10.6", "--force-reinstall"])
 
-        # --- basicsr / realesrgan / gfpgan cluster ---
-        # NOTE: These packages often fail because torch is CPU-only (fs.link side-effect).
-        # Always ensure GPU torch is installed first before reinstalling AI packages.
-        # CRITICAL: After reinstalling AI packages, ALWAYS re-verify torch — uv's
-        # --force-reinstall resolves torch as a dependency and may silently downgrade
-        # CUDA torch back to CPU torch from the default PyPI index.
+        # AI cluster: basicsr / realesrgan / gfpgan
         ai_cluster = {"basicsr", "realesrgan", "realesrgan.srvgg", "gfpgan"}
         if ai_cluster.intersection(failed):
-            # Step A: ensure GPU torch BEFORE reinstalling AI packages
-            ok, ver, dev, _ = self._torch_status()
-            if ok and (self._torch_is_cpu_build(ver) or dev == "cpu") and self._gpu_torch_needed():
-                self.p(c(Y, "  🚨 CPU torch with GPU hardware — reinstalling GPU torch first..."))
-                self._install_torch(force=True)
-
-            # Step B: reinstall AI packages (may silently downgrade torch!)
             self.p(c(Y, "  🔧 Reinstalling basicsr / realesrgan / gfpgan / facexlib ..."))
-            self._run(["uv", "pip", "install",
-                       "basicsr", "realesrgan", "gfpgan", "facexlib",
-                       "--force-reinstall"])
+            ai_pkgs = ["basicsr", "realesrgan", "gfpgan", "facexlib"]
+            cmd = ["uv", "pip", "install"] + ai_pkgs
+            for pkg in ai_pkgs:
+                cmd += ["--reinstall-package", pkg]
+            self._run(cmd)
             repaired |= ai_cluster
 
-            # Step C: ALWAYS re-verify torch after AI package install — it may have
-            # been downgraded to CPU by uv's dependency resolver, OR import may
-            # now fail entirely (broken CUDA DLLs from wrong torch version).
-            if self._gpu_torch_needed():
-                ok2, ver2, dev2, _ = self._torch_status()
-                if not ok2 or self._torch_is_cpu_build(ver2) or dev2 == "cpu":
-                    reason = "broken/unloadable" if not ok2 else ("CPU-only build" if self._torch_is_cpu_build(ver2) else "CPU device")
-                    self.p(c(Y, f"  🚨 torch {reason} after AI package install — restoring GPU torch..."))
-                    self._install_torch(force=True)
-
-        # --- rembg / onnxruntime ---
         if "rembg" in failed:
             self.p(c(Y, "  🔧 Reinstalling rembg + onnxruntime ..."))
             hw = self._detect_hardware()
             ort_pkg = "onnxruntime-gpu" if hw["gpu_type"] == "nvidia" else "onnxruntime"
-            self._run(["uv", "pip", "install", "rembg", ort_pkg, "--force-reinstall"])
+            self._run(["uv", "pip", "install", "rembg", ort_pkg,
+                       "--reinstall-package", "rembg",
+                       "--reinstall-package", ort_pkg])
             repaired.add("rembg")
 
-        # --- yt_dlp ---
         if "yt_dlp" in failed:
             self.p(c(Y, "  🔧 Reinstalling yt-dlp ..."))
-            self._run(["uv", "pip", "install", "yt-dlp", "--force-reinstall"])
+            self._run(["uv", "pip", "install", "yt-dlp",
+                       "--reinstall-package", "yt-dlp"])
             repaired.add("yt_dlp")
 
-        # --- cv2 ---
         if "cv2" in failed:
             self.p(c(Y, "  🔧 Reinstalling opencv-python-headless ..."))
-            self._run(["uv", "pip", "install", "opencv-python-headless", "--force-reinstall"])
+            self._run(["uv", "pip", "install", "opencv-python-headless",
+                       "--reinstall-package", "opencv-python-headless"])
             repaired.add("cv2")
 
-        # --- gradio ---
         if "gradio" in failed:
             self.p(c(Y, "  🔧 Reinstalling gradio ..."))
-            self._run(["uv", "pip", "install", "gradio", "--force-reinstall"])
+            self._run(["uv", "pip", "install", "gradio",
+                       "--reinstall-package", "gradio"])
             self._run(["uv", "pip", "install", "pydantic==2.10.6", "--force-reinstall"])
             repaired.add("gradio")
 
@@ -352,8 +338,13 @@ class SmartSetup:
         if not force:
             ok, ver, dev, err = self._torch_status()
             if ok:
-                self.p(c(G, f"  ✅ torch {ver} already working ({dev}) — skipping"))
-                return True
+                # Also verify it's the RIGHT build for this hardware — a CPU torch
+                # that loads fine is still wrong on a GPU machine.
+                if self._gpu_torch_needed() and (self._torch_is_cpu_build(ver) or dev == "cpu"):
+                    pass  # fall through and reinstall the correct GPU build
+                else:
+                    self.p(c(G, f"  ✅ torch {ver} already working ({dev}) — skipping"))
+                    return True
 
         hw = self._detect_hardware()
         gtype = hw["gpu_type"]
@@ -469,16 +460,11 @@ class SmartSetup:
             self.p(c(Y, "  🎮 NVIDIA detected — installing onnxruntime-gpu (replaces CPU onnxruntime)..."))
             self._run(["uv", "pip", "install", "onnxruntime-gpu", "--force-reinstall"])
 
-        # Guard: requirements.txt AI packages (basicsr, realesrgan, etc.) may pull in
-        # CPU torch as a dependency. Re-ensure GPU torch BEFORE writing the hash.
-        # Only write hash if torch is verified correct — prevents false "deps ok" on
-        # machines where torch restore failed.
-        torch_ok = True
-        if self._gpu_torch_needed():
-            ok_d, ver_d, dev_d, _ = self._torch_status()
-            if ok_d and (self._torch_is_cpu_build(ver_d) or dev_d == "cpu"):
-                self.p(c(Y, "  🚨 deps install downgraded torch to CPU — restoring GPU torch..."))
-                torch_ok = self._install_torch(force=True)
+        # requirements.txt installs basicsr/realesrgan/devicetorch which may pull
+        # in a plain PyPI torch.  Always call _install_torch() after deps so the
+        # correct GPU/CPU build is pinned.  _install_torch(force=False) is now
+        # hardware-aware: it skips only when torch is already correct for this machine.
+        torch_ok = self._install_torch()
 
         HASH_FILE.write_text(self._req_hash())
         self.p(c(G, "  ✅ Python deps installed"))
