@@ -405,9 +405,35 @@ class SmartSetup:
             self._save_state(torch_version=ver, torch_device=dev)
             return True
 
-        # CUDA DLL failed → CPU fallback
-        self.p(c(Y, f"  ⚠️  torch load failed: {err[:200]}"))
-        self.p(c(Y, "  🔄 Auto-fallback: installing CPU-only torch..."))
+        # CUDA DLL failed → diagnose driver version, then CPU fallback
+        self.p(c(R, f"  ❌ CUDA torch failed to load: {err[:200]}"))
+
+        # Check if this is a driver version problem
+        driver_ver = ""
+        try:
+            drv_out = subprocess.check_output(
+                ["nvidia-smi", "--query-gpu=driver_version", "--format=csv,noheader"],
+                stderr=subprocess.DEVNULL, timeout=6
+            ).decode().strip()
+            driver_ver = drv_out.split("\n")[0].strip()
+        except Exception:
+            pass
+
+        if driver_ver:
+            try:
+                major = int(driver_ver.split(".")[0])
+                if major < 528:
+                    self.p(c(R, f"  ⚠️  NVIDIA Driver {driver_ver} is TOO OLD for CUDA 12.8!"))
+                    self.p(c(Y, "  ➡  Please update NVIDIA Driver to version 528+ from:"))
+                    self.p(c(Y, "     https://www.nvidia.com/Download/index.aspx"))
+                    self.p(c(Y, "     After updating, run 'Fix' from the Pinokio menu."))
+                else:
+                    self.p(c(Y, f"  Driver {driver_ver} looks OK — may be a DLL conflict"))
+                    self.p(c(Y, "  Try: update NVIDIA driver to latest, then run Fix"))
+            except (ValueError, IndexError):
+                self.p(c(Y, f"  NVIDIA Driver: {driver_ver} — if CUDA fails, update driver"))
+
+        self.p(c(Y, "  🔄 Auto-fallback: installing CPU-only torch (GPU features disabled)..."))
         r = self._run(["uv","pip","install", *CPU_PKGS,
                        "--index-url", CPU_INDEX,
                        "--force-reinstall"])
