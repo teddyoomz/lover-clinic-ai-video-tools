@@ -640,8 +640,10 @@ def _make_cropper_html(img) -> str:
   #lc-crop-wrap {{
     background:#050505;border:1px solid #1c1c1c;border-radius:10px;
     padding:6px;display:flex;justify-content:center;align-items:center;overflow:auto;
+    height:38vh;min-height:220px;max-height:520px;
+    flex-shrink:0;
   }}
-  #lc-canvas {{display:block;cursor:crosshair;border-radius:3px;max-width:100%;}}
+  #lc-canvas {{display:block;cursor:crosshair;border-radius:3px;}}
   /* ── Info bar ────────────────────────────────── */
   #lc-infobar {{
     display:flex;align-items:center;justify-content:space-between;gap:8px;
