@@ -42,7 +42,7 @@ lover-clinic-ai-video-tools/        ← project root (_PROJ_ROOT)
 
 ---
 
-## 2. app/app.py — Section Map (~2165 lines)
+## 2. app/app.py — Section Map (~2800 lines)
 
 ### Lines 1–16 · Imports
 ```
@@ -113,14 +113,16 @@ platform, pathlib.Path, datetime, PIL.Image, numpy, cv2, io
 | `_output_subdir(name)` | Returns `output/{name}/` path, creates if missing |
 | `_open_folder(path)` | Opens Explorer at path + PowerShell AppActivate to bring window to front |
 
-### Lines 488–656 · Crop Tool HTML Generator
+### Lines ~488–860 · Crop Tool HTML Generator
 - `_make_cropper_html(img)` → returns HTML string for the interactive crop canvas widget
 - Embeds image as base64 PNG inside `<img id="lc-crop-img" data-w="…" data-h="…">`
 - **No `<script>` tags** — JS is injected separately via `.then(fn=None, js=CROP_INIT_JS)`
-- Toolbar layout:
-  - **Row 1**: Ratio pill-group + Swap AR / Grid / Center / Clear + Zoom −/val/+/Fit
-  - **Row 2**: Social presets chips (IG, Square, Story, YouTube, FB Cover, LinkedIn, Pinterest, OG)
-  - **Row 3**: Transform — Rotate ↺L / ↻R / 180° + Flip H / Flip V + Reset
+- All `.lc-*` CSS is embedded inside the HTML `<style>` block (f-string, `{{` = literal `{`)
+- Toolbar layout (3 rows, each with a label column + scrollable content):
+  - **สัดส่วน**: Ratio pill-group (Free/1:1/4:3/3:4/16:9/9:16/4:5/5:4/3:2/2:3) + Swap / Center / Clear
+  - **เครื่องมือ**: Rotate ↺L / ↻R / 180° + Flip H / V + Reset + Grid ภาพ / Grid Crop + Zoom −/val/+/Fit
+  - **Social**: Chips — IG Feed, Square, Story/Reel, YouTube, FB Cover, LinkedIn, Pinterest, OG Image
+- Button sizes auto-scale to container width via JS `_fitToolbar()` (beats Gradio CSS via `style.setProperty(..., 'important')`)
 
 ### Lines 657–786 · Tool Processing Functions
 | Function | Description |
@@ -155,35 +157,38 @@ Python applies: rotate(-r, expand=True) → FLIP_LEFT_RIGHT → FLIP_TOP_BOTTOM 
 | `_header_html()` | Flat dark topbar: icon + logo + subtitle + feature badge pills |
 | `WARN_GPU` | HTML warning box on video upscale tab |
 
-### Lines 1198–1585 · CROP_INIT_JS (JavaScript)
+### Lines ~1700–2200 · CROP_INIT_JS (JavaScript)
 Large JS string, injected via `.then(fn=None, js=CROP_INIT_JS)`.
 
 **State variables:**
 ```javascript
 rotation    // 0 | 90 | 180 | 270  (degrees CW)
-flipH       // bool
-flipV       // bool
-baseScale   // fit-to-container scale factor
-zoomFactor  // user zoom multiplier (default 1.0)
+flipH, flipV// bool
+baseScale   // fit-to-container scale factor (recalculated on rotation)
+zoomFactor  // user zoom multiplier — persisted to localStorage('lc_crop_zoom')
 lockedRatio // null | {w, h}
-showGrid    // bool — rule of thirds overlay
+gridMode    // 0=off 1=thirds 2=golden-ratio 3=diagonal+cross  (crop box overlay)
+imgGridMode // same cycle — full canvas overlay
 sx,sy,ex,ey // selection corners in canvas pixels
-hasSel      // bool
-dragMode    // 'draw' | 'move' | 'resize-<id>'
+hasSel, isDown, dragMode  // 'draw' | 'move' | 'resize-<handle>'
+_rafId      // requestAnimationFrame handle — throttles redraw to 1/frame
 ```
 
 **Key JS functions:**
 | Function | Purpose |
 |----------|---------|
-| `computeCanvasDims()` | `{w,h}` after rotation (90/270 swap origW↔origH) |
+| `computeCanvasDims()` | `{w,h}` after rotation (90/270 swap origW↔origH) × baseScale × zoomFactor |
 | `displayDims()` | Logical pixel size of displayed image after rotation |
 | `drawTransformed()` | Draws image with rotation + flip via canvas context transforms |
-| `redraw()` | Full repaint: image + dim overlay + selection rect + grid + 8 handles |
+| `redraw()` | Full repaint: image + imgGrid + dim overlay + selection rect + grid + 8 handles |
+| `scheduleRedraw()` | RAF-throttled wrapper for redraw — prevents flicker during drag |
 | `updateCoords()` | Selection → image coords + encode transforms → `window._lcCropCoords` + hidden textarea |
-| `applyZoom(factor)` | Resize canvas + scale selection proportionally |
-| `applyTransform(type)` | `rot-l`/`rot-r`/`rot-180`/`flip-h`/`flip-v`/`xform-reset` |
+| `scheduleCoords()` | 60ms debounced wrapper for updateCoords |
+| `applyZoom(factor)` | Resize canvas + scale selection proportionally + save to localStorage |
+| `applyTransform(type)` | `rot-l`/`rot-r`/`rot-180`/`flip-h`/`flip-v`/`xform-reset` + recalculates baseScale |
 | `setRatio(str)` | Lock aspect ratio from ratio buttons |
 | `centerAndApplyRatio(w,h)` | Center + fit selection box to given ratio |
+| `_fitToolbar()` | Scales toolbar buttons to container width via `style.setProperty('important')` |
 
 **Coordinate flow:**
 ```
@@ -232,16 +237,16 @@ Called inside `build_app()` from the Download Video tab context.
 - All saveable controls have `.change(_make_saver(key), inputs=[ctrl])` wired
 
 **Tab → function → settings keys:**
-| Tab | Function | Settings keys |
-|-----|----------|---------------|
-| 🔬 AI Upscale Photo | `upscale_photo` | `up_scale, up_model, up_fmt, up_out_dir` |
-| 🎬 AI Upscale Video | `upscale_video` | `vid_scale, vid_model, vid_out_dir` |
-| ✂️ AI Remove BG | `remove_background` | `bg_model, bg_option, bg_fmt, bg_out_dir` |
-| ✨ AI Enhance Image | `enhance_image` | `enh_scale, enh_bg, enh_fmt, enh_out_dir` |
-| 📐 Resize Image | `resize_image` | `res_w, res_h, res_ar, res_filter, res_fmt, res_out_dir` |
-| ✂️ Crop Image | `crop_image` | `crop_fmt, crop_out_dir` |
-| 🔄 Convert Format | `convert_format` | `conv_fmt, conv_q, conv_out_dir` |
-| ⬇️ Download Video | `_build_download_tab()` | `dl_out_dir` |
+| Tab (Thai) | Function | Settings keys |
+|------------|----------|---------------|
+| 🔬 AI เพิ่มความชัด (ภาพ) | `upscale_photo` | `up_scale, up_model, up_fmt, up_out_dir` |
+| 🎬 AI เพิ่มความชัด (วีดีโอ) | `upscale_video` | `vid_scale, vid_model, vid_out_dir` |
+| ✂️ AI ลบพื้นหลัง | `remove_background` | `bg_model, bg_option, bg_fmt, bg_out_dir` |
+| 🪄 AI ฟื้นฟูภาพ | `enhance_image` | `enh_scale, enh_bg, enh_fmt, enh_out_dir` |
+| 📐 ปรับขนาดภาพ | `resize_image` | `res_w, res_h, res_ar, res_filter, res_fmt, res_out_dir` |
+| ✂️ ครอปภาพ | `crop_image` | `crop_fmt, crop_out_dir` |
+| 🔄 แปลงรูปแบบ | `convert_format` | `conv_fmt, conv_q, conv_out_dir` |
+| ⬇️ ดาวน์โหลดวีดีโอ | `_build_download_tab()` | `dl_out_dir` |
 
 ---
 
@@ -289,7 +294,7 @@ python smart.py torch     → force-reinstall correct torch for detected GPU
 
 | Package | Used For |
 |---------|---------|
-| `gradio >= 4.44.0` | Web UI framework |
+| `gradio >= 6.0.0, < 7.0.0` | Web UI framework |
 | `realesrgan` | Photo/video upscaling |
 | `gfpgan` + `basicsr` | Face enhancement + backend |
 | `rembg` | Background removal |
@@ -312,12 +317,16 @@ Preferred: `C:\ffmpeg\bin\ffmpeg.exe` — avoids broken Conda ffmpeg (DLL error 
 
 | Issue | Workaround in code |
 |-------|-------------------|
-| Conda ffmpeg crashes with 0xC0000135 | `_find_ffmpeg()` tries hardcoded paths first (lines ~300) |
-| torchvision ≥ 0.16 removed `functional_tensor` | Compat patch at startup lines 41–49 |
+| Conda ffmpeg crashes with 0xC0000135 | `_find_ffmpeg()` tries hardcoded paths first |
+| torchvision ≥ 0.16 removed `functional_tensor` | Compat patch at startup |
 | `<script>` in `gr.HTML` never executes | Crop JS via `.then(fn=None, js=CROP_INIT_JS)` |
 | React controlled inputs ignore `.value=` | Native setter + dispatchEvent pattern |
 | `gr.Video(interactive=False)` won't update in Gradio 6 | Removed `interactive=False` from vid_out |
 | `fs.link` overwrites CUDA torch with shared CPU | install.js re-runs `smart.py torch` after fs.link |
+| Gradio CSS overrides button styles after page load | JS `style.setProperty(..., 'important')` wins over dynamic stylesheets |
+| Gradio tab "..." overflow hides tabs | Override `getBoundingClientRect` on `[role=tablist]` → returns width:9999 → all tabs visible (see `GRADIO_OVERRIDE_KNOWLEDGE.md`) |
+| Canvas crop flicker during drag | `requestAnimationFrame` throttle via `scheduleRedraw()` |
+| Image falls offscreen after rotation | Recalculate `baseScale` from `displayDims()` inside `applyTransform()` |
 
 ---
 

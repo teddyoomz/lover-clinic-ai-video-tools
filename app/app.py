@@ -22,7 +22,7 @@ import io
 _log_dir = Path(__file__).parent / "logs"
 _log_dir.mkdir(exist_ok=True)
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(message)s",
     handlers=[
         logging.FileHandler(_log_dir / "app.log", encoding="utf-8"),

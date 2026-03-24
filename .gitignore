@@ -26,8 +26,15 @@ build/
 logs/
 app/logs/
 
-# Smart dep checker hash (auto-generated at runtime)
+# Smart dep checker hash + runtime state (auto-generated)
 .req_hash
+.smart_state.json
+
+# Downloaded model weights (auto-downloaded at runtime)
+app/gfpgan/
+
+# User output files
+output/
 
 # User settings (persisted locally, not shared)
 lc_settings.json
