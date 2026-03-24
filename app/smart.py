@@ -219,11 +219,13 @@ class SmartSetup:
             repaired |= ai_cluster
 
             # Step C: ALWAYS re-verify torch after AI package install — it may have
-            # been downgraded to CPU by uv's dependency resolver.
+            # been downgraded to CPU by uv's dependency resolver, OR import may
+            # now fail entirely (broken CUDA DLLs from wrong torch version).
             if self._gpu_torch_needed():
                 ok2, ver2, dev2, _ = self._torch_status()
-                if ok2 and (self._torch_is_cpu_build(ver2) or dev2 == "cpu"):
-                    self.p(c(Y, "  🚨 torch was downgraded to CPU during AI package install — restoring GPU torch..."))
+                if not ok2 or self._torch_is_cpu_build(ver2) or dev2 == "cpu":
+                    reason = "broken/unloadable" if not ok2 else ("CPU-only build" if self._torch_is_cpu_build(ver2) else "CPU device")
+                    self.p(c(Y, f"  🚨 torch {reason} after AI package install — restoring GPU torch..."))
                     self._install_torch(force=True)
 
         # --- rembg / onnxruntime ---
@@ -716,10 +718,13 @@ class SmartSetup:
         # ── 5. Final torch guard — repair_imports may have downgraded torch ──
         # uv --force-reinstall resolves torch as dependency and can install CPU
         # version from default PyPI, overwriting the CUDA torch we set up above.
+        # IMPORTANT: also handles ok_f=False — torch broken/unloadable counts as
+        # "needs GPU torch" just as much as CPU-only builds do.
         if self._gpu_torch_needed():
             ok_f, ver_f, dev_f, _ = self._torch_status()
-            if ok_f and (self._torch_is_cpu_build(ver_f) or dev_f == "cpu"):
-                self.p(c(Y, f"⚠️  torch downgraded to CPU ({ver_f}) — restoring GPU torch..."))
+            if not ok_f or self._torch_is_cpu_build(ver_f) or dev_f == "cpu":
+                reason = "broken/unloadable" if not ok_f else f"CPU-only ({ver_f})"
+                self.p(c(Y, f"⚠️  torch {reason} after repair — restoring GPU torch..."))
                 self._install_torch(force=True)
                 heal_done = True
             # else: torch is fine
