@@ -1714,8 +1714,15 @@ CROP_INIT_JS = """
     var _longSide = Math.max(origW, origH);
     var maxH      = Math.round(_longSide * Math.min(1, maxW / _longSide));
     if (maxH < 160) maxH = 160;
-    // Fixed box height = longest side scaled — never changes on zoom or rotation
-    if (wrapEl) wrapEl.style.height = maxH + 'px';
+    // Lock box height — !important beats any Gradio layout override
+    function _lockWrap() {
+      if (!wrapEl) return;
+      wrapEl.style.setProperty('height',     maxH + 'px', 'important');
+      wrapEl.style.setProperty('max-height', maxH + 'px', 'important');
+      wrapEl.style.setProperty('min-height', maxH + 'px', 'important');
+      wrapEl.style.setProperty('overflow',   'auto',       'important');
+    }
+    _lockWrap();
     var scale = Math.min(1, maxW / origW, maxH / origH);
 
     // ── Zoom ──────────────────────────────────────────────
