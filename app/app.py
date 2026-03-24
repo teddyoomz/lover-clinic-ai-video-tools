@@ -2299,34 +2299,36 @@ def _build_download_tab(cfg: dict):
             opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
         return opts
 
+    _DD_PLACEHOLDER = "— กดดึงข้อมูลก่อน —"
+
     # ── Step 1a: Show loading state immediately ───────────────────────────────
     def _fetch_loading():
         return (
             gr.update(value="⏳ กำลังดึงข้อมูลวีดีโอ...", visible=True),
-            gr.update(choices=[], value=None, visible=False),
+            gr.update(choices=["⏳ กำลังดึง..."], value="⏳ กำลังดึง...", interactive=False),
             {},
             gr.update(visible=False),
         )
 
     # ── Step 1b: Fetch quality list (runs after loading state shown) ──────────
     def _fetch(url):
-        _hide_dd  = gr.update(choices=[], value=None, visible=False)
+        _reset_dd = gr.update(choices=[_DD_PLACEHOLDER], value=_DD_PLACEHOLDER, interactive=False)
         _hide_btn = gr.update(visible=False)
 
         url = (url or "").strip()
         if not url or not url.startswith(("http://", "https://")):
-            return (gr.update(value="❌ URL ไม่ถูกต้อง — ต้องขึ้นต้นด้วย http:// หรือ https://", visible=True), _hide_dd, {}, _hide_btn)
+            return (gr.update(value="❌ URL ไม่ถูกต้อง — ต้องขึ้นต้นด้วย http:// หรือ https://", visible=True), _reset_dd, {}, _hide_btn)
         try:
             import yt_dlp
         except ImportError:
-            return (gr.update(value="❌ ไม่พบ yt-dlp — กรุณากด Fix แล้ว Start ใหม่", visible=True), _hide_dd, {}, _hide_btn)
+            return (gr.update(value="❌ ไม่พบ yt-dlp — กรุณากด Fix แล้ว Start ใหม่", visible=True), _reset_dd, {}, _hide_btn)
 
         ydl_opts = {**_base_ydl_opts(), "skip_download": True}
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
         except Exception as e:
-            return (gr.update(value=f"❌ ดึงข้อมูลไม่สำเร็จ:\n{str(e)[-400:]}", visible=True), _hide_dd, {}, _hide_btn)
+            return (gr.update(value=f"❌ ดึงข้อมูลไม่สำเร็จ:\n{str(e)[-400:]}", visible=True), _reset_dd, {}, _hide_btn)
 
         title    = info.get("title", "Unknown")
         duration = info.get("duration") or 0
@@ -2377,7 +2379,7 @@ def _build_download_tab(cfg: dict):
 
         return (
             gr.update(value=info_txt, visible=True),
-            gr.update(choices=quality_list, value=quality_list[0], visible=True),
+            gr.update(choices=quality_list, value=quality_list[0], interactive=True),
             quality_map,
             gr.update(visible=True),
         )
@@ -2563,7 +2565,7 @@ def _build_download_tab(cfg: dict):
 
     info_out = gr.Textbox(label="ข้อมูลวีดีโอ", interactive=False, lines=3, visible=False)
 
-    quality_dd    = gr.Dropdown(label="เลือกความละเอียด", choices=[], visible=False, interactive=True)
+    quality_dd    = gr.Dropdown(label="เลือกความละเอียด", choices=["— กดดึงข้อมูลก่อน —"], value="— กดดึงข้อมูลก่อน —", visible=True, interactive=False)
     quality_state = gr.State({})
 
     dl_out_dir, _ = _save_dir_row("download", label="📁 บันทึกวีดีโอที่")
