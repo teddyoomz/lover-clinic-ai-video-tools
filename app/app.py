@@ -659,7 +659,7 @@ def _make_cropper_html(img) -> str:
     margin-top:5px;overflow:hidden;
   }}
   /* ── Section row ────────────────────────────── */
-  .lc-section {{display:flex;align-items:stretch;border-bottom:1px solid #111;}}
+  .lc-section {{display:flex;align-items:stretch;border-bottom:1px solid #111;overflow:hidden;min-width:0;}}
   .lc-section:last-child {{border-bottom:none;}}
   .lc-section-lbl {{
     display:flex;align-items:center;justify-content:flex-end;
@@ -1157,24 +1157,29 @@ footer { display: none !important; }
 div[role="tablist"] {
     background: var(--bg-base) !important;
     border-bottom: 1px solid var(--bd) !important;
-    padding: 0 20px !important;
-    gap: 2px !important;
-    flex-wrap: nowrap !important;
-    overflow-x: auto !important;
-    scrollbar-width: none !important;
+    padding: 4px 12px 0 !important;
+    gap: 0 !important;
+    display: flex !important;
+    flex-wrap: wrap !important;
+    justify-content: center !important;
+    overflow: visible !important;
 }
-div[role="tablist"]::-webkit-scrollbar { display: none; }
+/* Hide Gradio's "..." overflow button — we wrap instead */
+div[role="tablist"] > button:not([role="tab"]) {
+    display: none !important;
+}
 
 button[role="tab"] {
+    display: flex !important;
     background: transparent !important;
     color: var(--tx-muted) !important;
     border: none !important;
     border-bottom: 2px solid transparent !important;
     border-radius: 0 !important;
-    padding: 12px 16px 10px !important;
+    padding: 10px 14px 8px !important;
     font-weight: 600 !important;
-    font-size: 0.72rem !important;
-    letter-spacing: 0.08em !important;
+    font-size: 0.70rem !important;
+    letter-spacing: 0.06em !important;
     text-transform: uppercase !important;
     transition: color var(--dur) var(--ease-std),
                 border-color var(--dur) var(--ease-std) !important;
