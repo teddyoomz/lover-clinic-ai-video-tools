@@ -349,6 +349,26 @@ def get_rembg_session(model_name="birefnet-general"):
     return _rembg_sessions[model_name]
 
 
+def get_gfpganer(upscale_factor: int, enhance_bg: bool):
+    device = get_device()
+    key = f"{upscale_factor}_{enhance_bg}_{device}"
+    if key not in _gfpgan_cache:
+        from gfpgan import GFPGANer
+        import torch
+        bg_upsampler = get_realesrgan(scale=2, model_type="general") if enhance_bg else None
+        logger.info(f"Loading GFPGAN model on {device} (upscale={upscale_factor}, bg={enhance_bg})")
+        _gfpgan_cache[key] = GFPGANer(
+            model_path=("https://github.com/TencentARC/GFPGAN/releases/"
+                        "download/v1.3.4/GFPGANv1.4.pth"),
+            upscale=int(upscale_factor),
+            arch="clean",
+            channel_multiplier=2,
+            bg_upsampler=bg_upsampler,
+            device=torch.device(device),
+        )
+    return _gfpgan_cache[key]
+
+
 # ============================================================
 # AI FUNCTIONS
 # ============================================================
@@ -557,25 +577,7 @@ def enhance_image(image, upscale_factor, enhance_bg, output_dir, fmt="PNG", prog
         return None, "⚠️ Please upload an image first."
     try:
         progress(0.1, desc="Loading GFPGAN model…")
-        from gfpgan import GFPGANer
-
-        bg_upsampler = None
-        if enhance_bg:
-            progress(0.15, desc="Loading background upsampler…")
-            bg_upsampler = get_realesrgan(scale=2, model_type="general")
-
-        device = get_device()
-        import torch
-        logger.info(f"Loading GFPGAN model on {device} (upscale={upscale_factor})")
-        restorer = GFPGANer(
-            model_path=("https://github.com/TencentARC/GFPGAN/releases/"
-                        "download/v1.3.4/GFPGANv1.4.pth"),
-            upscale=int(upscale_factor),
-            arch="clean",
-            channel_multiplier=2,
-            bg_upsampler=bg_upsampler,
-            device=torch.device(device),
-        )
+        restorer = get_gfpganer(int(upscale_factor), bool(enhance_bg))
 
         progress(0.4, desc="Enhancing image…")
         img_bgr = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
