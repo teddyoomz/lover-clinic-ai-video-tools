@@ -1714,13 +1714,17 @@ CROP_INIT_JS = """
     var _longSide = Math.max(origW, origH);
     var maxH      = Math.round(_longSide * Math.min(1, maxW / _longSide));
     if (maxH < 160) maxH = 160;
-    // Lock box height — !important beats any Gradio layout override
+    // Inject/replace a <style> tag in <head> — persists across Gradio component
+    // re-renders (unlike inline style which is wiped when the DOM is replaced)
     function _lockWrap() {
-      if (!wrapEl) return;
-      wrapEl.style.setProperty('height',     maxH + 'px', 'important');
-      wrapEl.style.setProperty('max-height', maxH + 'px', 'important');
-      wrapEl.style.setProperty('min-height', maxH + 'px', 'important');
-      wrapEl.style.setProperty('overflow',   'auto',       'important');
+      var sid = '__lc_wrap_h';
+      var s = document.getElementById(sid);
+      if (!s) { s = document.createElement('style'); s.id = sid; document.head.appendChild(s); }
+      s.textContent = '#lc-crop-wrap{'
+        + 'height:'     + maxH + 'px!important;'
+        + 'max-height:' + maxH + 'px!important;'
+        + 'min-height:' + maxH + 'px!important;'
+        + 'overflow:auto!important}';
     }
     _lockWrap();
     var scale = Math.min(1, maxW / origW, maxH / origH);

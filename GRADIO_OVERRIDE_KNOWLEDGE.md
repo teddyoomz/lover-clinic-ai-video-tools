@@ -270,11 +270,50 @@ All `{` and `}` in the CSS that are NOT template variables must be doubled: `{{`
 
 ---
 
-## 8. Quick Cheat Sheet
+## 8. Persisting Dynamic CSS Across Gradio Re-renders
+
+### Problem
+`element.style.setProperty(...)` sets inline styles on a DOM element **inside** a `gr.HTML`
+component. When Gradio re-renders that component (e.g. a new image is loaded and Python
+returns new HTML), the entire DOM subtree is **replaced**. All inline styles are wiped.
+
+### Symptom
+- Lock works on first load
+- After uploading a second image or any state change that triggers `gr.HTML` update, the lock is gone
+- Intermittent — depends on whether Gradio re-rendered the component
+
+### Fix: inject a `<style>` tag into `<head>` instead of inline styles
+`<head>` is **never** touched by Gradio component re-renders. CSS injected there persists forever.
+
+```javascript
+function _lockWrap() {
+  var sid = '__lc_wrap_h';   // unique ID so we can replace, not stack
+  var s = document.getElementById(sid);
+  if (!s) { s = document.createElement('style'); s.id = sid; document.head.appendChild(s); }
+  s.textContent = '#lc-crop-wrap{'
+    + 'height:'     + maxH + 'px!important;'
+    + 'max-height:' + maxH + 'px!important;'
+    + 'min-height:' + maxH + 'px!important;'
+    + 'overflow:auto!important}';
+}
+```
+
+**Why this beats `style.setProperty` with `'important'`:**
+- Inline styles (even with `!important`) live on the DOM element — gone when the element is replaced
+- A `<style>` tag in `<head>` is a global CSS rule — survives any component re-render
+- Setting `s.textContent` replaces the previous rule instantly (no stale values)
+
+**Use this pattern whenever** you need a dynamic CSS value (computed at JS runtime) that must
+survive Gradio component re-renders.
+
+---
+
+## 9. Quick Cheat Sheet
 
 | Problem | Solution |
 |---------|----------|
 | CSS not overriding Gradio button style | JS `element.style.setProperty('prop', 'val', 'important')` |
+| Dynamic CSS lost after Gradio re-render | Inject `<style id="uid">` into `<head>` instead of inline style |
 | Buttons wrong size on resize | `ResizeObserver` on container element (not `window.resize`) |
 | Gradio "..." tab overflow button shows | Override `getBoundingClientRect` on `[role="tablist"]` to return `width:9999` |
 | "..." button selector not working | It's `.tab-wrapper > span`, NOT inside `div[role="tablist"]` |
