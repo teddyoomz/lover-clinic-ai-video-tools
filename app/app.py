@@ -623,13 +623,44 @@ def _open_folder(path: str) -> str:
     os.makedirs(path, exist_ok=True)
     try:
         if sys.platform == "win32":
-            p = path.replace("'", "''")
+            import base64
+            abs_path = os.path.abspath(path)
+            # PowerShell script: open explorer, then find the exact window by path
+            # and bring it to front using Win32 SetForegroundWindow / ShowWindow.
+            ps_script = r"""
+Add-Type @"
+using System;
+using System.Runtime.InteropServices;
+public class WinAPI {
+    [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr hWnd);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+}
+"@
+$target = '""" + abs_path.replace("'", "''") + r"""'
+Start-Process explorer.exe -ArgumentList $target
+$found = $false
+for ($i = 0; $i -lt 10; $i++) {
+    Start-Sleep -Milliseconds 300
+    $shell = New-Object -ComObject Shell.Application
+    foreach ($w in $shell.Windows()) {
+        try {
+            $loc = $w.Document.Folder.Self.Path
+            if ($loc -eq $target) {
+                $hwnd = [IntPtr]$w.HWND
+                [WinAPI]::ShowWindow($hwnd, 9) | Out-Null
+                [WinAPI]::SetForegroundWindow($hwnd) | Out-Null
+                $found = $true
+                break
+            }
+        } catch {}
+    }
+    if ($found) { break }
+}
+"""
+            encoded = base64.b64encode(ps_script.encode("utf-16-le")).decode("ascii")
             subprocess.Popen([
-                "powershell", "-NoProfile", "-WindowStyle", "Hidden", "-Command",
-                f"Start-Process explorer.exe -ArgumentList '{p}'; "
-                f"Start-Sleep -Milliseconds 500; "
-                f"Add-Type -AssemblyName Microsoft.VisualBasic; "
-                f"[Microsoft.VisualBasic.Interaction]::AppActivate('File Explorer')"
+                "powershell", "-NoProfile", "-WindowStyle", "Hidden",
+                "-EncodedCommand", encoded
             ])
         elif sys.platform == "darwin":
             subprocess.Popen(["open", path])
