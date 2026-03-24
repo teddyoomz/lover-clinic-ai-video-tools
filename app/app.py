@@ -2334,13 +2334,13 @@ def _build_download_tab(cfg: dict):
             gr.update(value="⏳ กำลังดึงข้อมูลวีดีโอ...", visible=True),
             gr.update(choices=["⏳ กำลังดึง..."], value="⏳ กำลังดึง...", interactive=False),
             {},
-            gr.update(visible=False),
+            gr.update(interactive=False),
         )
 
     # ── Step 1b: Fetch quality list (runs after loading state shown) ──────────
     def _fetch(url):
         _reset_dd = gr.update(choices=[_DD_PLACEHOLDER], value=_DD_PLACEHOLDER, interactive=False)
-        _hide_btn = gr.update(visible=False)
+        _hide_btn = gr.update(interactive=False)
 
         url = (url or "").strip()
         if not url or not url.startswith(("http://", "https://")):
@@ -2408,7 +2408,7 @@ def _build_download_tab(cfg: dict):
             gr.update(value=info_txt, visible=True),
             gr.update(choices=quality_list, value=quality_list[0], interactive=True),
             quality_map,
-            gr.update(visible=True),
+            gr.update(interactive=True),
         )
 
     # ── Step 2: Download with real-time progress ──────────────────────────────
@@ -2599,7 +2599,7 @@ def _build_download_tab(cfg: dict):
     dl_out_dir.value = cfg["dl_out_dir"]
 
     with gr.Row():
-        download_btn = gr.Button("⬇️ ดาวน์โหลด", variant="primary",  visible=False, scale=4)
+        download_btn = gr.Button("⬇️ ดาวน์โหลด", variant="primary",  visible=True, interactive=False, scale=4)
         pause_btn    = gr.Button("⏸ พัก",         variant="secondary", visible=False, scale=1, min_width=100)
         stop_btn     = gr.Button("⏹ หยุด",        variant="stop",      visible=False, scale=1, min_width=100)
 
