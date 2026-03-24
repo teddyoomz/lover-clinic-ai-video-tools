@@ -2109,6 +2109,54 @@ CROP_INIT_JS = """
       if(info){ var _d=displayDims(); info.textContent='ลากเพื่อเลือกพื้นที่ · '+_d.w+'×'+_d.h+' px'; }
     }
     if(img.complete){ initDraw(); } else { img.onload=initDraw; }
+
+    // ── Force toolbar button sizes (JS wins over any Gradio CSS) ──────────
+    function _fitToolbar() {
+      var toolbar = document.getElementById('lc-toolbar');
+      if (!toolbar) return;
+      var cw = toolbar.clientWidth;
+      if (!cw || cw < 10) return;
+      // Scale font & padding relative to actual toolbar pixel width
+      // At cw=800: font=11px pad=5px 9px  |  cw=500: font=10px pad=4px 7px  |  cw=320: font=9px pad=3px 5px
+      var fs  = Math.max(9,  Math.min(11, cw * 0.0155));  // 9–11 px
+      var px  = Math.max(5,  Math.min(9,  cw * 0.012));   // 5–9 px horizontal pad
+      var py  = Math.max(3,  Math.min(5,  cw * 0.007));   // 3–5 px vertical pad
+      var fsS = fs.toFixed(1)+'px';
+      var pad = py.toFixed(1)+'px '+px.toFixed(1)+'px';
+      toolbar.querySelectorAll('button').forEach(function(b) {
+        b.style.setProperty('font-size',          fsS,  'important');
+        b.style.setProperty('padding',            pad,  'important');
+        b.style.setProperty('font-weight',        '600','important');
+        b.style.setProperty('line-height',        '1.2','important');
+        b.style.setProperty('white-space',        'nowrap','important');
+        b.style.setProperty('box-sizing',         'border-box','important');
+        b.style.setProperty('-webkit-appearance', 'none','important');
+        b.style.setProperty('appearance',         'none','important');
+        b.style.setProperty('margin',             '0',  'important');
+      });
+      // Zoom label
+      var zv = document.getElementById('lc-zoom-val');
+      if (zv) {
+        zv.style.setProperty('font-size', fsS, 'important');
+        zv.style.setProperty('min-width', Math.round(cw*0.04)+'px', 'important');
+      }
+      // Section labels
+      toolbar.querySelectorAll('.lc-section-lbl').forEach(function(el){
+        var lblW = Math.max(32, Math.min(46, Math.round(cw*0.065)));
+        el.style.setProperty('width',     lblW+'px','important');
+        el.style.setProperty('min-width', lblW+'px','important');
+        el.style.setProperty('font-size', Math.max(6, Math.min(7.5, cw*0.009)).toFixed(1)+'px','important');
+      });
+    }
+    _fitToolbar();
+    // Re-fit on resize (container-aware, not just window)
+    if (window.ResizeObserver) {
+      new ResizeObserver(function(){ _fitToolbar(); })
+        .observe(document.getElementById('lc-toolbar') || document.body);
+    } else {
+      window.addEventListener('resize', _fitToolbar);
+    }
+
   }, 150);
 }
 """
