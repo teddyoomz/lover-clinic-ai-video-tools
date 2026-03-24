@@ -2055,12 +2055,18 @@ CROP_INIT_JS = """
     function applyTransform(type){
       // reset selection — canvas geometry may change on rotation
       sx=0;sy=0;ex=0;ey=0;hasSel=false;
-      if(type==='rot-l')   rotation=(rotation+270)%360;
+      if(type==='rot-l')        rotation=(rotation+270)%360;
       else if(type==='rot-r')   rotation=(rotation+90)%360;
       else if(type==='rot-180') rotation=(rotation+180)%360;
       else if(type==='flip-h')  flipH=!flipH;
       else if(type==='flip-v')  flipV=!flipV;
       else if(type==='xform-reset'){ rotation=0; flipH=false; flipV=false; }
+      // Refit: recalculate baseScale for the new orientation so image stays fully visible
+      var dd2=displayDims();
+      baseScale=Math.min(1, maxW/dd2.w, maxH/dd2.h);
+      zoomFactor=1.0;
+      var zEl=document.getElementById('lc-zoom-val');
+      if(zEl) zEl.textContent='100%';
       // resize canvas for new rotation
       var d=computeCanvasDims();
       canvas.width=d.w; canvas.height=d.h;
