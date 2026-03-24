@@ -1654,13 +1654,14 @@ CROP_INIT_JS = """
     if (!maxW || maxW < 10) maxW = 600;
     if (!maxH || maxH < 10) maxH = 460;
     var scale = Math.min(1, maxW / origW, maxH / origH);
-    canvas.width  = Math.round(origW * scale);
-    canvas.height = Math.round(origH * scale);
 
     // ── Zoom ──────────────────────────────────────────────
     var baseScale  = scale;
-    var zoomFactor = 1.0;
     var zoomSteps  = [0.25,0.33,0.5,0.67,0.75,1.0,1.25,1.5,2.0,2.5,3.0];
+    var _savedZoom = parseFloat(localStorage.getItem('lc_crop_zoom'));
+    var zoomFactor = (_savedZoom && zoomSteps.indexOf(_savedZoom) >= 0) ? _savedZoom : 1.0;
+    canvas.width  = Math.round(origW * baseScale * zoomFactor);
+    canvas.height = Math.round(origH * baseScale * zoomFactor);
 
     // ── Transform state ───────────────────────────────────
     var rotation = 0;      // 0 | 90 | 180 | 270  (degrees CW)
@@ -1694,6 +1695,7 @@ CROP_INIT_JS = """
       redraw(); updateCoords();
       var zEl=document.getElementById('lc-zoom-val');
       if(zEl) zEl.textContent=Math.round(zoomFactor*100)+'%';
+      try{ localStorage.setItem('lc_crop_zoom', zoomFactor); }catch(e){}
     }
 
     // ── State ─────────────────────────────────────────────
@@ -2117,10 +2119,10 @@ CROP_INIT_JS = """
       var cw = toolbar.clientWidth;
       if (!cw || cw < 10) return;
       // Scale font & padding relative to actual toolbar pixel width
-      // At cw=800: font=11px pad=5px 9px  |  cw=500: font=10px pad=4px 7px  |  cw=320: font=9px pad=3px 5px
-      var fs  = Math.max(9,  Math.min(11, cw * 0.0155));  // 9–11 px
-      var px  = Math.max(5,  Math.min(9,  cw * 0.012));   // 5–9 px horizontal pad
-      var py  = Math.max(3,  Math.min(5,  cw * 0.007));   // 3–5 px vertical pad
+      // At cw=800: font=13px pad=6px 11px  |  cw=500: font=11px pad=5px 9px  |  cw=320: font=10px pad=4px 7px
+      var fs  = Math.max(10, Math.min(13, cw * 0.019));   // 10–13 px
+      var px  = Math.max(6,  Math.min(11, cw * 0.015));   // 6–11 px horizontal pad
+      var py  = Math.max(4,  Math.min(6,  cw * 0.009));   // 4–6 px vertical pad
       var fsS = fs.toFixed(1)+'px';
       var pad = py.toFixed(1)+'px '+px.toFixed(1)+'px';
       toolbar.querySelectorAll('button').forEach(function(b) {
@@ -2142,13 +2144,16 @@ CROP_INIT_JS = """
       }
       // Section labels
       toolbar.querySelectorAll('.lc-section-lbl').forEach(function(el){
-        var lblW = Math.max(32, Math.min(46, Math.round(cw*0.065)));
+        var lblW = Math.max(36, Math.min(54, Math.round(cw*0.075)));
         el.style.setProperty('width',     lblW+'px','important');
         el.style.setProperty('min-width', lblW+'px','important');
-        el.style.setProperty('font-size', Math.max(6, Math.min(7.5, cw*0.009)).toFixed(1)+'px','important');
+        el.style.setProperty('font-size', Math.max(7, Math.min(9, cw*0.011)).toFixed(1)+'px','important');
       });
     }
     _fitToolbar();
+    // Sync zoom label with restored zoom value
+    var _zvInit = document.getElementById('lc-zoom-val');
+    if (_zvInit) _zvInit.textContent = Math.round(zoomFactor*100)+'%';
     // Re-fit on resize (container-aware, not just window)
     if (window.ResizeObserver) {
       new ResizeObserver(function(){ _fitToolbar(); })
