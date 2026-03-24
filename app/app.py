@@ -514,9 +514,9 @@ def remove_background(image, model_choice, bg_option, custom_bg, output_dir, fmt
         from rembg import remove
         result = remove(image, session=session)  # RGBA PIL image
 
-        if bg_option == "Transparent":
+        if bg_option in ("Transparent", "โปร่งใส"):
             final = result
-        elif bg_option == "Custom Image" and custom_bg is not None:
+        elif bg_option in ("Custom Image", "รูปภาพเอง") and custom_bg is not None:
             bg = custom_bg.resize(result.size).convert("RGBA")
             final = Image.alpha_composite(bg, result).convert("RGB")
         else:
@@ -524,13 +524,16 @@ def remove_background(image, model_choice, bg_option, custom_bg, output_dir, fmt
                 "White": (255, 255, 255),
                 "Black": (0, 0, 0),
                 "Red": (180, 0, 0),
+                "ขาว": (255, 255, 255),
+                "ดำ": (0, 0, 0),
+                "แดง": (180, 0, 0),
             }
             color = color_map.get(bg_option, (255, 255, 255))
             bg = Image.new("RGBA", result.size, (*color, 255))
             final = Image.alpha_composite(bg, result).convert("RGB")
 
         progress(1.0)
-        save_fmt = "PNG" if bg_option == "Transparent" else fmt
+        save_fmt = "PNG" if bg_option in ("Transparent", "โปร่งใส") else fmt
         saved = _save_image(final, output_dir, "removed_bg", fmt=save_fmt)
         return final, f"✅ Background removed\n💾 {saved}"
     except Exception as e:
