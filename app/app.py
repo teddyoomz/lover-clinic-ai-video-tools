@@ -2140,12 +2140,12 @@ CROP_INIT_JS = """
       else if(type==='flip-h')  flipH=!flipH;
       else if(type==='flip-v')  flipV=!flipV;
       else if(type==='xform-reset'){ rotation=0; flipH=false; flipV=false; }
-      // Refit: recalculate baseScale for the new orientation so image stays fully visible
+      // Refit: recalculate baseScale for new orientation (keeps image fully visible)
+      // zoomFactor intentionally preserved — user's zoom level survives rotation
       var dd2=displayDims();
       baseScale=Math.min(1, maxW/dd2.w, maxH/dd2.h);
-      zoomFactor=1.0;
       var zEl=document.getElementById('lc-zoom-val');
-      if(zEl) zEl.textContent='100%';
+      if(zEl) zEl.textContent=Math.round(zoomFactor*100)+'%';
       // resize canvas for new rotation
       var d=computeCanvasDims();
       canvas.width=d.w; canvas.height=d.h;
@@ -2154,9 +2154,10 @@ CROP_INIT_JS = """
       var fvB=document.getElementById('lc-btn-flip-v');
       if(fhB) fhB.classList.toggle('lc-active',flipH);
       if(fvB) fvB.classList.toggle('lc-active',flipV);
-      redraw();
-      // encode transform state so crop button always knows current rotation/flip
-      updateCoords();
+      // Use RAF so redraw fires AFTER layout reflow from canvas resize settles
+      // (prevents blank-canvas flash that ResizeObserver/fitToolbar can cause)
+      if(_rafId) cancelAnimationFrame(_rafId);
+      _rafId = requestAnimationFrame(function(){ _rafId=null; redraw(); updateCoords(); });
       var dd=displayDims();
       var info=document.getElementById('lc-crop-info');
       if(info) info.textContent='ลากเพื่อเลือกพื้นที่ · '+dd.w+'×'+dd.h+' px'
