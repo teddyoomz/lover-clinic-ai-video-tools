@@ -640,8 +640,7 @@ def _make_cropper_html(img) -> str:
   #lc-crop-wrap {{
     background:#050505;border:1px solid #1c1c1c;border-radius:10px;
     padding:6px;display:flex;justify-content:center;align-items:center;overflow:auto;
-    height:38vh;min-height:220px;max-height:520px;
-    flex-shrink:0;
+    min-height:160px;flex-shrink:0;box-sizing:border-box;
   }}
   #lc-canvas {{display:block;cursor:crosshair;border-radius:3px;}}
   /* ── Info bar ────────────────────────────────── */
@@ -1707,10 +1706,15 @@ CROP_INIT_JS = """
     var ctx   = canvas.getContext('2d');
     var origW = parseInt(img.getAttribute('data-w'));
     var origH = parseInt(img.getAttribute('data-h'));
-    var maxW  = (canvas.parentElement ? canvas.parentElement.clientWidth : 600) - 24;
-    var maxH  = Math.round(window.innerHeight * 0.38);
+    var wrapEl = canvas.parentElement;
+    var maxW   = (wrapEl ? wrapEl.clientWidth : 600) - 14;
     if (!maxW || maxW < 10) maxW = 600;
-    if (!maxH || maxH < 10) maxH = 460;
+    // Natural height = image height scaled to fit width, capped at 55vh
+    var _natH = Math.round(origH * Math.min(1, maxW / origW));
+    var maxH  = Math.min(_natH, Math.round(window.innerHeight * 0.55));
+    if (maxH < 160) maxH = 160;
+    // Fix wrap height once — stays stable through rotation & zoom
+    if (wrapEl) wrapEl.style.height = (maxH + 14) + 'px';
     var scale = Math.min(1, maxW / origW, maxH / origH);
 
     // ── Zoom ──────────────────────────────────────────────
