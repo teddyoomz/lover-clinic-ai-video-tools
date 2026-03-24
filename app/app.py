@@ -2293,7 +2293,7 @@ def _build_download_tab(cfg: dict):
         if ffmpeg:
             opts["ffmpeg_location"] = ffmpeg
         js_found = False
-        for bin_name, rt_key in [("node", "nodejs"), ("nodejs", "nodejs"), ("deno", "deno")]:
+        for bin_name, rt_key in [("node", "node"), ("nodejs", "node"), ("deno", "deno"), ("bun", "bun")]:
             p = _sh.which(bin_name)
             if p:
                 opts["js_runtimes"] = {rt_key: {"path": p}}
