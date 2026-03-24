@@ -39,6 +39,8 @@ module.exports = {
       if (running.start) {
         let local = info.local("start.js")
         if (local && local.url) {
+          // App is live — show Terminal only (app already opened in system browser)
+          // Do NOT use href: local.url — that would load Gradio inside Pinokio webview (wastes RAM)
           return [{
             default: true,
             icon: "fa-solid fa-terminal",

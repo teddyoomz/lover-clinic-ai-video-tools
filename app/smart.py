@@ -53,6 +53,7 @@ class SmartSetup:
         LOG_DIR.mkdir(exist_ok=True)
         self.state = self._load_state()
         self.sys_info = None          # lazy
+        self._cleanup_logs(max_age_hours=1.0)
 
     # ── State persistence ─────────────────────────────────────
     def _load_state(self):
@@ -67,6 +68,17 @@ class SmartSetup:
         STATE_FILE.write_text(json.dumps(self.state, indent=2))
 
     # ── Logging ───────────────────────────────────────────────
+    def _cleanup_logs(self, max_age_hours: float = 1.0):
+        """Delete smart.log if it's older than max_age_hours, to prevent log bloat."""
+        import time
+        if LOG_FILE.exists():
+            try:
+                age = time.time() - LOG_FILE.stat().st_mtime
+                if age > max_age_hours * 3600:
+                    LOG_FILE.unlink()
+            except Exception:
+                pass
+
     def _log(self, msg: str):
         ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         line = f"[{ts}] {msg}"
@@ -77,8 +89,14 @@ class SmartSetup:
             f.write(clean + "\n")
 
     def p(self, msg: str):
-        """Print + log."""
-        print(msg)
+        """Print + log (safe for any terminal encoding)."""
+        try:
+            print(msg)
+        except (UnicodeEncodeError, UnicodeDecodeError):
+            # Fallback for terminals with limited encodings (e.g. Windows cp874)
+            import re
+            clean = re.sub(r"[^\x00-\x7F]+", "?", msg)
+            print(clean)
         self._log(msg)
 
     # ── Shell helpers ─────────────────────────────────────────
@@ -91,7 +109,8 @@ class SmartSetup:
 
     # ── Torch test (subprocess — safe from DLL crashes) ───────
     def _torch_status(self):
-        """Returns (ok, version, device, error_msg)."""
+        """Returns (ok, version, device, error_msg).
+        device will be 'cpu' for CPU-only builds even if GPU exists."""
         script = (
             "import torch; "
             "d='cuda:'+torch.cuda.get_device_name(0) if torch.cuda.is_available() "
@@ -110,6 +129,16 @@ class SmartSetup:
         except Exception as e:
             return False, None, "cpu", str(e)
 
+    def _gpu_torch_needed(self):
+        """Returns True if a GPU exists and we should be using GPU torch.
+        Used to detect the case where torch works but is CPU-only despite having GPU."""
+        hw = self._detect_hardware()
+        return hw["gpu_type"] in ("nvidia", "amd")
+
+    def _torch_is_cpu_build(self, ver: str) -> bool:
+        """Returns True if the torch version string indicates a CPU-only build (e.g. '2.7.0+cpu')."""
+        return ver is not None and "+cpu" in ver
+
     # ── Requirements hash ─────────────────────────────────────
     def _req_hash(self):
         return hashlib.md5(REQ_FILE.read_bytes()).hexdigest()
@@ -117,6 +146,150 @@ class SmartSetup:
     def _deps_current(self):
         stored = HASH_FILE.read_text().strip() if HASH_FILE.exists() else ""
         return self._req_hash() == stored
+
+    # ── Deep import health check ───────────────────────────────
+    _CRITICAL_IMPORTS = {
+        "gradio":    "import gradio",
+        "cv2":       "import cv2",
+        "PIL":       "from PIL import Image",
+        "numpy":     "import numpy",
+        "basicsr":   "from basicsr.archs.rrdbnet_arch import RRDBNet",
+        "realesrgan":"from realesrgan import RealESRGANer",
+        "realesrgan.srvgg": "from realesrgan.archs.srvgg_arch import SRVGGNetCompact",
+        "gfpgan":    "from gfpgan import GFPGANer",
+        "rembg":     "from rembg import remove",
+        "yt_dlp":    "import yt_dlp",
+    }
+
+    def _check_imports(self):
+        """Subprocess-safe import test for all critical packages.
+        Returns dict  {name: {"ok": bool, "error": str|None}}"""
+        import json as _json
+        lines = [
+            "import sys, json",
+            "results = {}",
+        ]
+        for name, stmt in self._CRITICAL_IMPORTS.items():
+            safe_stmt = stmt.replace("\\", "\\\\").replace('"', '\\"')
+            safe_name = name.replace(".", "_")
+            lines.append(
+                f'try:\n    exec("{safe_stmt}")\n    results["{name}"] = {{"ok":True}}'
+                f'\nexcept Exception as e:\n    results["{name}"] = {{"ok":False,"error":str(e)[:200]}}'
+            )
+        lines.append("print(json.dumps(results))")
+        script = "\n".join(lines)
+        try:
+            r = self._run([sys.executable, "-c", script], capture=True, timeout=60)
+            if r.returncode == 0 and r.stdout.strip().startswith("{"):
+                return _json.loads(r.stdout.strip())
+        except Exception as e:
+            self.p(c(Y, f"  ⚠️  Import check failed to run: {e}"))
+        return {}
+
+    # ── Targeted package repair ────────────────────────────────
+    def _repair_imports(self, failed: list):
+        """Given a list of failed import keys, run targeted repairs."""
+        repaired = set()
+
+        # --- pydantic pin (often breaks after gradio update) ---
+        if not any(k in ("gradio",) for k in failed):
+            pass  # only if gradio import ok
+        self.p(c(Y, "  📌 Pinning pydantic==2.10.6 ..."))
+        self._run(["uv", "pip", "install", "pydantic==2.10.6", "--force-reinstall"])
+
+        # --- basicsr / realesrgan / gfpgan cluster ---
+        # NOTE: These packages often fail because torch is CPU-only (fs.link side-effect).
+        # Always ensure GPU torch is installed first before reinstalling AI packages.
+        # CRITICAL: After reinstalling AI packages, ALWAYS re-verify torch — uv's
+        # --force-reinstall resolves torch as a dependency and may silently downgrade
+        # CUDA torch back to CPU torch from the default PyPI index.
+        ai_cluster = {"basicsr", "realesrgan", "realesrgan.srvgg", "gfpgan"}
+        if ai_cluster.intersection(failed):
+            # Step A: ensure GPU torch BEFORE reinstalling AI packages
+            ok, ver, dev, _ = self._torch_status()
+            if ok and (self._torch_is_cpu_build(ver) or dev == "cpu") and self._gpu_torch_needed():
+                self.p(c(Y, "  🚨 CPU torch with GPU hardware — reinstalling GPU torch first..."))
+                self._install_torch(force=True)
+
+            # Step B: reinstall AI packages (may silently downgrade torch!)
+            self.p(c(Y, "  🔧 Reinstalling basicsr / realesrgan / gfpgan / facexlib ..."))
+            self._run(["uv", "pip", "install",
+                       "basicsr", "realesrgan", "gfpgan", "facexlib",
+                       "--force-reinstall"])
+            repaired |= ai_cluster
+
+            # Step C: ALWAYS re-verify torch after AI package install — it may have
+            # been downgraded to CPU by uv's dependency resolver.
+            if self._gpu_torch_needed():
+                ok2, ver2, dev2, _ = self._torch_status()
+                if ok2 and (self._torch_is_cpu_build(ver2) or dev2 == "cpu"):
+                    self.p(c(Y, "  🚨 torch was downgraded to CPU during AI package install — restoring GPU torch..."))
+                    self._install_torch(force=True)
+
+        # --- rembg / onnxruntime ---
+        if "rembg" in failed:
+            self.p(c(Y, "  🔧 Reinstalling rembg + onnxruntime ..."))
+            hw = self._detect_hardware()
+            ort_pkg = "onnxruntime-gpu" if hw["gpu_type"] == "nvidia" else "onnxruntime"
+            self._run(["uv", "pip", "install", "rembg", ort_pkg, "--force-reinstall"])
+            repaired.add("rembg")
+
+        # --- yt_dlp ---
+        if "yt_dlp" in failed:
+            self.p(c(Y, "  🔧 Reinstalling yt-dlp ..."))
+            self._run(["uv", "pip", "install", "yt-dlp", "--force-reinstall"])
+            repaired.add("yt_dlp")
+
+        # --- cv2 ---
+        if "cv2" in failed:
+            self.p(c(Y, "  🔧 Reinstalling opencv-python-headless ..."))
+            self._run(["uv", "pip", "install", "opencv-python-headless", "--force-reinstall"])
+            repaired.add("cv2")
+
+        # --- gradio ---
+        if "gradio" in failed:
+            self.p(c(Y, "  🔧 Reinstalling gradio ..."))
+            self._run(["uv", "pip", "install", "gradio", "--force-reinstall"])
+            self._run(["uv", "pip", "install", "pydantic==2.10.6", "--force-reinstall"])
+            repaired.add("gradio")
+
+        return repaired
+
+    # ── ffmpeg availability ────────────────────────────────────
+    def _check_ffmpeg(self):
+        """Returns True if a working ffmpeg binary is found."""
+        import shutil as _sh
+        for exe in (_sh.which("ffmpeg"), r"C:\ffmpeg\bin\ffmpeg.exe"):
+            if exe and os.path.isfile(exe):
+                try:
+                    r = subprocess.run([exe, "-version"],
+                                       capture_output=True, timeout=5)
+                    if r.returncode == 0:
+                        return True
+                except Exception:
+                    pass
+        # imageio-ffmpeg bundled binary
+        try:
+            r = self._run([sys.executable, "-c",
+                           "import imageio_ffmpeg; print(imageio_ffmpeg.get_ffmpeg_exe())"],
+                          capture=True, timeout=15)
+            if r.returncode == 0 and r.stdout.strip():
+                return True
+        except Exception:
+            pass
+        return False
+
+    def _install_ffmpeg(self):
+        """Try to install ffmpeg via conda (cross-platform)."""
+        import shutil as _sh
+        if _sh.which("conda"):
+            self.p(c(Y, "  🔧 Installing ffmpeg via conda ..."))
+            r = self._run(["conda", "install", "-y", "-c", "conda-forge", "ffmpeg"])
+            return r.returncode == 0
+        # fallback: imageio-ffmpeg (bundled Python ffmpeg)
+        self.p(c(Y, "  🔧 Installing imageio-ffmpeg (bundled ffmpeg) ..."))
+        r = self._run(["uv", "pip", "install", "imageio-ffmpeg", "--force-reinstall"])
+        return r.returncode == 0
 
     # ── GPU / hardware detection ──────────────────────────────
     def _detect_hardware(self):
@@ -260,9 +433,28 @@ class SmartSetup:
             self.p(c(R, "  ❌ pip install failed"))
             return False
         self._run(["uv","pip","install","pydantic==2.10.6"])
+
+        # For NVIDIA GPUs: swap onnxruntime (CPU) → onnxruntime-gpu so that
+        # rembg background removal runs on GPU from first install, not just CPU.
+        hw = self._detect_hardware()
+        if hw["gpu_type"] == "nvidia":
+            self.p(c(Y, "  🎮 NVIDIA detected — installing onnxruntime-gpu (replaces CPU onnxruntime)..."))
+            self._run(["uv", "pip", "install", "onnxruntime-gpu", "--force-reinstall"])
+
+        # Guard: requirements.txt AI packages (basicsr, realesrgan, etc.) may pull in
+        # CPU torch as a dependency. Re-ensure GPU torch BEFORE writing the hash.
+        # Only write hash if torch is verified correct — prevents false "deps ok" on
+        # machines where torch restore failed.
+        torch_ok = True
+        if self._gpu_torch_needed():
+            ok_d, ver_d, dev_d, _ = self._torch_status()
+            if ok_d and (self._torch_is_cpu_build(ver_d) or dev_d == "cpu"):
+                self.p(c(Y, "  🚨 deps install downgraded torch to CPU — restoring GPU torch..."))
+                torch_ok = self._install_torch(force=True)
+
         HASH_FILE.write_text(self._req_hash())
         self.p(c(G, "  ✅ Python deps installed"))
-        return True
+        return torch_ok
 
     # ── Banner ────────────────────────────────────────────────
     def _banner(self, title):
@@ -341,7 +533,6 @@ class SmartSetup:
     # ──────────────────────────────────────────────────────────
     def fix(self):
         self._banner("Fix")
-        issues = []
 
         # Detect hardware
         hw = self._detect_hardware()
@@ -349,41 +540,80 @@ class SmartSetup:
         self.p(c(W, f"  GPU : {hw['gpu_name']}"))
         self.p("")
 
-        # Check torch
+        issues_found = False
+
+        # ── 1. Deps hash ──────────────────────────────────────
+        self.p("  🔍 Checking dependency hash...")
+        if self._deps_current():
+            self.p(c(G, "  ✅ Deps hash OK"))
+        else:
+            self.p(c(Y, "  ⚠️  Deps hash mismatch — reinstalling..."))
+            self._install_deps(force=True)
+            issues_found = True
+
+        # ── 2. pydantic pin (must be 2.10.6) ─────────────────
+        self.p("  🔍 Pinning pydantic==2.10.6 ...")
+        self._run(["uv", "pip", "install", "pydantic==2.10.6", "--quiet"])
+
+        # ── 3. torch ──────────────────────────────────────────
         self.p("  🔍 Checking torch...")
         ok, ver, dev, err = self._torch_status()
-        if ok:
-            self.p(c(G, f"  ✅ torch {ver} ({dev})"))
-        else:
+        if not ok:
             self.p(c(R, f"  ❌ torch BROKEN: {err[:120]}"))
-            issues.append("torch")
-
-        # Check deps
-        self.p("  🔍 Checking dependencies...")
-        if self._deps_current():
-            self.p(c(G, "  ✅ Python deps OK"))
-        else:
-            self.p(c(Y, "  ⚠️  Deps hash mismatch"))
-            issues.append("deps")
-
-        if not issues:
-            self.p(c(G, "\n  ✅ Everything looks healthy — no fixes needed!\n"))
-            return 0
-
-        self.p(c(Y, f"\n  🔧 Fixing {len(issues)} issue(s)...\n"))
-
-        if "deps" in issues:
-            self._install_deps(force=True)
-        if "torch" in issues:
+            self.p(c(Y, "  🔧 Reinstalling torch for this machine..."))
             self._install_torch(force=True)
-
-        # Re-check
-        ok, ver, dev, _ = self._torch_status()
-        if ok:
-            self.p(c(G, f"\n  ✅ Fix complete — torch {ver} running on {dev}\n"))
+            issues_found = True
+        elif self._gpu_torch_needed() and (self._torch_is_cpu_build(ver) or dev == "cpu"):
+            self.p(c(Y, f"  ⚠️  torch {ver} is CPU-only despite GPU hardware — reinstalling GPU torch..."))
+            self._install_torch(force=True)
+            issues_found = True
         else:
-            self.p(c(R, "\n  ⚠️  Some issues remain — check logs/smart.log\n"))
-        return 0
+            self.p(c(G, f"  ✅ torch {ver} ({dev})"))
+
+        # ── 4. Deep AI package import check ──────────────────
+        self.p("  🔍 Testing all AI package imports...")
+        results = self._check_imports()
+        failed = [name for name, r in results.items() if not r.get("ok")]
+        passed = [name for name, r in results.items() if r.get("ok")]
+
+        for name in passed:
+            self.p(c(G, f"  ✅ {name}"))
+        for name in failed:
+            err_msg = (results[name].get("error") or "")[:80]
+            self.p(c(R, f"  ❌ {name} — {err_msg}"))
+
+        if failed:
+            self.p(c(Y, f"\n  🔧 Repairing {len(failed)} broken package(s)...\n"))
+            self._repair_imports(failed)
+            issues_found = True
+
+        # ── 5. ffmpeg ─────────────────────────────────────────
+        self.p("  🔍 Checking ffmpeg...")
+        if self._check_ffmpeg():
+            self.p(c(G, "  ✅ ffmpeg OK"))
+        else:
+            self.p(c(Y, "  ⚠️  ffmpeg not found — installing..."))
+            self._install_ffmpeg()
+            issues_found = True
+
+        # ── 6. Final verification ─────────────────────────────
+        self.p(c(B, "\n  🔍 Final verification...\n"))
+        ok, ver, dev, _ = self._torch_status()
+        results2 = self._check_imports()
+        still_failed = [n for n, r in results2.items() if not r.get("ok")]
+
+        if ok and not still_failed:
+            msg = "✅ All systems healthy!" if not issues_found else "✅ All issues fixed!"
+            self.p(c(G, f"\n  {msg}  torch {ver} on {dev}\n"))
+            return 0
+        else:
+            if not ok:
+                self.p(c(R, f"  ❌ torch still broken"))
+            for n in still_failed:
+                self.p(c(R, f"  ❌ {n} still failing"))
+            self.p(c(Y, "\n  ⚠️  Some issues could not be auto-fixed."))
+            self.p(c(Y, "     Try: Reset → Re-install to start fresh.\n"))
+            return 1
 
     # ──────────────────────────────────────────────────────────
     def _gradio_ok(self):
@@ -393,23 +623,85 @@ class SmartSetup:
         return r.returncode == 0
 
     def start(self):
-        """Fast pre-launch check — minimal output."""
-        # Deps: check hash AND verify gradio is actually importable
+        """Pre-launch health check with auto-heal — minimal, fast output."""
+        heal_done = False
+
+        # ── 1. Deps hash ──────────────────────────────────────
         if not self._deps_current() or not self._gradio_ok():
             self.p("📦 Deps missing or changed — installing...")
             if not self._install_deps(force=True):
+                self.p(c(R, "❌ Dep install failed — run Fix from the menu"))
                 sys.exit(1)
+            heal_done = True
         else:
             self.p(c(G, "✅ Deps OK"))
 
-        # Torch
+        # ── 2. pydantic pin ───────────────────────────────────
+        self._run(["uv", "pip", "install", "pydantic==2.10.6", "--quiet"])
+
+        # ── 3. Torch ──────────────────────────────────────────
         ok, ver, dev, err = self._torch_status()
         if ok:
-            self.p(c(G, f"✅ torch {ver} ({dev})"))
+            # Torch loads fine — but is it the RIGHT build for this hardware?
+            gpu_needed = self._gpu_torch_needed()
+            is_cpu_build = self._torch_is_cpu_build(ver)
+            running_on_cpu = (dev == "cpu")
+
+            if gpu_needed and (is_cpu_build or running_on_cpu):
+                # fs.link may have replaced CUDA torch with CPU version from shared cache
+                self.p(c(Y, f"⚠️  torch {ver} is CPU-only but GPU hardware detected — reinstalling GPU torch..."))
+                self._install_torch(force=True)
+                # Re-check after reinstall
+                ok2, ver2, dev2, err2 = self._torch_status()
+                if ok2:
+                    self.p(c(G, f"✅ torch {ver2} ({dev2})"))
+                else:
+                    self.p(c(Y, f"⚠️  GPU torch failed to load ({err2[:80]}) — continuing with CPU fallback"))
+                heal_done = True
+            else:
+                self.p(c(G, f"✅ torch {ver} ({dev})"))
         else:
-            self.p(c(Y, f"⚠️  torch issue: {err[:80]}"))
-            self.p("🔄 Auto-fixing torch...")
+            self.p(c(Y, f"⚠️  torch broken — auto-fixing..."))
             self._install_torch(force=True)
+            heal_done = True
+
+        # ── 4. Quick import smoke-test (critical packages only) ─
+        QUICK_CHECKS = {
+            "gradio":     "import gradio",
+            "cv2":        "import cv2",
+            "basicsr":    "from basicsr.archs.rrdbnet_arch import RRDBNet",
+            "realesrgan": "from realesrgan import RealESRGANer",
+            "realesrgan.srvgg": "from realesrgan.archs.srvgg_arch import SRVGGNetCompact",
+        }
+        # Temporarily override _CRITICAL_IMPORTS for quick scan
+        _orig = self._CRITICAL_IMPORTS
+        self.__class__._CRITICAL_IMPORTS = QUICK_CHECKS
+        results = self._check_imports()
+        self.__class__._CRITICAL_IMPORTS = _orig
+
+        failed = [n for n, r in results.items() if not r.get("ok")]
+        if failed:
+            self.p(c(Y, f"⚠️  Import issues: {', '.join(failed)} — auto-repairing..."))
+            self._repair_imports(failed)
+            heal_done = True
+        else:
+            self.p(c(G, "✅ Core AI packages OK"))
+
+        # ── 5. Final torch guard — repair_imports may have downgraded torch ──
+        # uv --force-reinstall resolves torch as dependency and can install CPU
+        # version from default PyPI, overwriting the CUDA torch we set up above.
+        if self._gpu_torch_needed():
+            ok_f, ver_f, dev_f, _ = self._torch_status()
+            if ok_f and (self._torch_is_cpu_build(ver_f) or dev_f == "cpu"):
+                self.p(c(Y, f"⚠️  torch downgraded to CPU ({ver_f}) — restoring GPU torch..."))
+                self._install_torch(force=True)
+                heal_done = True
+            # else: torch is fine
+
+        if heal_done:
+            self.p(c(G, "✅ Auto-heal complete — launching app..."))
+        else:
+            self.p(c(G, "✅ All checks passed — launching app..."))
 
     # ──────────────────────────────────────────────────────────
     def torch_reinstall(self):

@@ -1,4 +1,4 @@
-gradio>=4.44.0
+gradio>=6.0.0,<7.0.0
 pillow>=10.0.0
 numpy<2.0.0
 opencv-python-headless
@@ -12,3 +12,5 @@ devicetorch
 ffmpeg-python
 pydantic==2.10.6
 requests
+yt-dlp
+imageio-ffmpeg
