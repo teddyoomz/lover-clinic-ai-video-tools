@@ -1664,7 +1664,7 @@ CROP_INIT_JS = """
     var dragMode = 'draw';          // 'draw' | 'move' | 'resize-<id>'
     var dragStart = null;           // snapshot of sx/sy/ex/ey at mousedown
     var lockedRatio = null;         // null = free  |  {w, h}
-    var showGrid = false;
+    var gridMode = 0; // 0=off  1=rule-of-thirds  2=golden-ratio(φ)  3=diagonal+cross
     var HR = 7;                     // handle radius px
 
     // ── Helpers ───────────────────────────────────────────
@@ -1744,16 +1744,34 @@ CROP_INIT_JS = """
       // selection border
       ctx.strokeStyle='#fff'; ctx.lineWidth=2; ctx.setLineDash([]);
       ctx.strokeRect(r.x+0.5,r.y+0.5,r.w-1,r.h-1);
-      // rule-of-thirds grid
-      if(showGrid) {
+      // grid overlay — cycles through 3 modes
+      if(gridMode > 0) {
         ctx.strokeStyle='rgba(255,255,255,0.55)'; ctx.lineWidth=1; ctx.setLineDash([4,4]);
-        var gx1=r.x+r.w/3, gx2=r.x+2*r.w/3, gy1=r.y+r.h/3, gy2=r.y+2*r.h/3;
         ctx.beginPath();
-        ctx.moveTo(gx1,r.y); ctx.lineTo(gx1,r.y+r.h);
-        ctx.moveTo(gx2,r.y); ctx.lineTo(gx2,r.y+r.h);
-        ctx.moveTo(r.x,gy1); ctx.lineTo(r.x+r.w,gy1);
-        ctx.moveTo(r.x,gy2); ctx.lineTo(r.x+r.w,gy2);
+        if(gridMode === 1) {
+          // Rule of Thirds — divide at 1/3 and 2/3
+          var gx1=r.x+r.w/3, gx2=r.x+2*r.w/3, gy1=r.y+r.h/3, gy2=r.y+2*r.h/3;
+          ctx.moveTo(gx1,r.y); ctx.lineTo(gx1,r.y+r.h);
+          ctx.moveTo(gx2,r.y); ctx.lineTo(gx2,r.y+r.h);
+          ctx.moveTo(r.x,gy1); ctx.lineTo(r.x+r.w,gy1);
+          ctx.moveTo(r.x,gy2); ctx.lineTo(r.x+r.w,gy2);
+        } else if(gridMode === 2) {
+          // Golden Ratio — divide at φ≈0.618 and 1-φ≈0.382
+          var phi=0.618;
+          var px1=r.x+r.w*(1-phi), px2=r.x+r.w*phi, py1=r.y+r.h*(1-phi), py2=r.y+r.h*phi;
+          ctx.moveTo(px1,r.y); ctx.lineTo(px1,r.y+r.h);
+          ctx.moveTo(px2,r.y); ctx.lineTo(px2,r.y+r.h);
+          ctx.moveTo(r.x,py1); ctx.lineTo(r.x+r.w,py1);
+          ctx.moveTo(r.x,py2); ctx.lineTo(r.x+r.w,py2);
+        } else if(gridMode === 3) {
+          // Diagonal + center cross — good for dynamic/symmetry composition
+          ctx.moveTo(r.x,r.y); ctx.lineTo(r.x+r.w,r.y+r.h);
+          ctx.moveTo(r.x+r.w,r.y); ctx.lineTo(r.x,r.y+r.h);
+          ctx.moveTo(r.x+r.w/2,r.y); ctx.lineTo(r.x+r.w/2,r.y+r.h);
+          ctx.moveTo(r.x,r.y+r.h/2); ctx.lineTo(r.x+r.w,r.y+r.h/2);
+        }
         ctx.stroke();
+        ctx.setLineDash([]);
       }
       // handles
       ctx.setLineDash([]);
@@ -1900,9 +1918,17 @@ CROP_INIT_JS = """
       });
     });
 
-    // Grid toggle
+    // Grid cycle: Off → 3×3 → φ → Diagonal → Off
+    var GRID_LABELS = ['⊞ Grid', '⊞ 3×3', '⊞ φ', '⊞ ✕'];
+    var GRID_TITLES = ['แสดง Grid', 'Rule of Thirds (3×3)', 'Golden Ratio (φ)', 'Diagonal + Center'];
     var gBtn=document.getElementById('lc-btn-grid');
-    if(gBtn) gBtn.addEventListener('click',function(){ showGrid=!showGrid; gBtn.classList.toggle('lc-active',showGrid); redraw(); });
+    if(gBtn) gBtn.addEventListener('click',function(){
+      gridMode = (gridMode + 1) % 4;
+      gBtn.textContent = GRID_LABELS[gridMode];
+      gBtn.title = GRID_TITLES[gridMode];
+      gBtn.classList.toggle('lc-active', gridMode > 0);
+      redraw();
+    });
 
     // Center
     var cBtn=document.getElementById('lc-btn-center');
