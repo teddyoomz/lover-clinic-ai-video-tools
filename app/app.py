@@ -2292,15 +2292,10 @@ def _build_download_tab(cfg: dict):
         ffmpeg = _ffmpeg_bin()
         if ffmpeg:
             opts["ffmpeg_location"] = ffmpeg
-        js_found = False
-        for bin_name, rt_key in [("node", "node"), ("nodejs", "node"), ("deno", "deno"), ("bun", "bun")]:
-            p = _sh.which(bin_name)
-            if p:
-                opts["js_runtimes"] = {rt_key: {"path": p}}
-                js_found = True
-                break
+        # Let yt-dlp auto-detect JS runtimes; only fall back to android if none found
+        js_found = any(_sh.which(b) for b in ("node", "nodejs", "deno", "bun"))
         if not js_found:
-            # No JS runtime available — use Android player client which skips JS
+            # No JS runtime — use Android+web player clients (no JS needed)
             opts["extractor_args"] = {"youtube": {"player_client": ["android", "web"]}}
         return opts
 
@@ -2590,7 +2585,6 @@ def _build_download_tab(cfg: dict):
         fn=_fetch,
         inputs=[url_input],
         outputs=[info_out, quality_dd, quality_state, download_btn],
-        stream_every=0.1,
     )
     download_btn.click(
         fn=_download,
