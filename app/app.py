@@ -252,9 +252,13 @@ _rembg_sessions = {}
 _device_cache: dict = {}
 
 def get_device() -> str:
-    """Return 'cuda', 'mps', or 'cpu'. Result is cached after first call."""
-    if "dev" in _device_cache:
-        return _device_cache["dev"]
+    """Return 'cuda', 'mps', or 'cpu'.
+    GPU results are cached permanently. CPU is NOT cached so that a
+    transient failure (e.g. torch_cuda.dll not yet loaded at startup)
+    doesn't lock all subsequent calls into CPU mode."""
+    cached = _device_cache.get("dev")
+    if cached in ("cuda", "mps"):
+        return cached
     try:
         import torch
         if torch.cuda.is_available():
@@ -265,7 +269,8 @@ def get_device() -> str:
             dev = "cpu"
     except (ImportError, OSError):
         dev = "cpu"
-    _device_cache["dev"] = dev
+    if dev in ("cuda", "mps"):          # only cache GPU — never lock into CPU
+        _device_cache["dev"] = dev
     return dev
 
 
@@ -589,6 +594,12 @@ def enhance_image(image, upscale_factor, enhance_bg, output_dir, fmt="PNG", prog
         )
         result = Image.fromarray(cv2.cvtColor(output, cv2.COLOR_BGR2RGB))
         progress(1.0)
+        try:
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except Exception:
+            pass
         saved = _save_image(result, output_dir, "enhanced", fmt=fmt)
         return result, f"✅ Image enhanced\n💾 {saved}"
     except Exception as e:
