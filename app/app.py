@@ -78,6 +78,14 @@ _OUTPUT_ROOT = _PROJ_ROOT / "output"
 _OUTPUT_ROOT.mkdir(exist_ok=True)
 DEFAULT_OUT = str(_OUTPUT_ROOT)
 
+# Models are stored here — persists across env resets, shared across runs
+_MODELS_DIR = _PROJ_ROOT / "models"
+for _d in ("realesrgan", "gfpgan", "rembg"):
+    (_MODELS_DIR / _d).mkdir(parents=True, exist_ok=True)
+
+# Tell rembg / u2net where to store ONNX models (must be set before import)
+os.environ.setdefault("U2NET_HOME", str(_MODELS_DIR / "rembg"))
+
 # ============================================================
 # SETTINGS PERSISTENCE
 # ============================================================
@@ -334,9 +342,14 @@ def get_realesrgan(scale=4, model_type="general"):
             tile = 512
             out_scale = 4
 
+        # Download to persistent models folder (skips if already present)
+        from basicsr.utils.download_util import load_file_from_url
+        local_path = load_file_from_url(
+            model_url, model_dir=str(_MODELS_DIR / "realesrgan"), progress=True
+        )
         _realesrgan_cache[full_key] = RealESRGANer(
             scale=out_scale,
-            model_path=model_url,
+            model_path=local_path,
             model=model,
             tile=tile,
             tile_pad=10,
@@ -362,9 +375,15 @@ def get_gfpganer(upscale_factor: int, enhance_bg: bool):
         import torch
         bg_upsampler = get_realesrgan(scale=2, model_type="general") if enhance_bg else None
         logger.info(f"Loading GFPGAN model on {device} (upscale={upscale_factor}, bg={enhance_bg})")
+        # Download main GFPGAN model to persistent folder (skips if already present)
+        from basicsr.utils.download_util import load_file_from_url
+        gfpgan_url = ("https://github.com/TencentARC/GFPGAN/releases/"
+                      "download/v1.3.4/GFPGANv1.4.pth")
+        gfpgan_model_path = load_file_from_url(
+            gfpgan_url, model_dir=str(_MODELS_DIR / "gfpgan"), progress=True
+        )
         _gfpgan_cache[key] = GFPGANer(
-            model_path=("https://github.com/TencentARC/GFPGAN/releases/"
-                        "download/v1.3.4/GFPGANv1.4.pth"),
+            model_path=gfpgan_model_path,
             upscale=int(upscale_factor),
             arch="clean",
             channel_multiplier=2,

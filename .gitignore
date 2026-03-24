@@ -5,7 +5,8 @@ node_modules
 app/env/
 env/
 
-# Model cache (auto-downloaded at runtime)
+# Model cache (auto-downloaded at runtime, stored persistently at project root)
+models/
 app/models/
 ~/.cache/huggingface/
 ~/.cache/torch/
