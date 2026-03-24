@@ -2415,9 +2415,9 @@ def _build_download_tab(cfg: dict):
         # Always force JS-free player clients.
         # The 'web' client now requires a JavaScript PO-token; using it without
         # a JS runtime causes yt-dlp to spam warnings and hang while retrying.
-        # android / ios / tv_embedded work natively without any JS runtime.
+        # android + android_vr: no JS needed, returns full format range 144p–4K.
         opts["extractor_args"] = {
-            "youtube": {"player_client": ["android", "ios", "tv_embedded"]}
+            "youtube": {"player_client": ["android", "android_vr"]}
         }
         return opts
 
