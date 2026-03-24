@@ -108,7 +108,7 @@ _SETTINGS_DEFAULTS: dict = {
     "res_w":       1920,
     "res_h":       1080,
     "res_ar":      True,
-    "res_filter":  "Lanczos (Best Quality)",
+    "res_filter":  "Lanczos (คุณภาพสูงสุด)",
     "res_fmt":     "PNG",
     "res_out_dir": None,
     # Crop
@@ -633,29 +633,29 @@ def _make_cropper_html(img) -> str:
   #lc-toolbar{{
     background:#0a0a0a;
     border:1px solid #222;
-    border-radius:14px;
-    padding:10px 14px;
-    margin-bottom:8px;
-    display:flex;flex-direction:column;gap:8px;
+    border-radius:12px;
+    padding:7px 10px;
+    margin-top:7px;
+    display:flex;flex-direction:column;gap:5px;
   }}
-  .lc-row{{display:flex;align-items:center;gap:6px;flex-wrap:wrap;}}
+  .lc-row{{display:flex;align-items:center;gap:5px;flex-wrap:wrap;}}
   .lc-lbl{{
-    font-size:9px;font-weight:700;letter-spacing:.12em;
+    font-size:8.5px;font-weight:700;letter-spacing:.1em;
     text-transform:uppercase;color:#374151;
-    min-width:44px;flex-shrink:0;
+    min-width:40px;flex-shrink:0;
   }}
   /* pill button-group */
   .lc-grp{{
     display:flex;
     background:#050505;
     border:1px solid #222;
-    border-radius:8px;
+    border-radius:7px;
     overflow:hidden;
   }}
   .lc-ratio-btn{{
     background:transparent;color:#4b5563;
     border:none;border-right:1px solid #1a1a1a;
-    padding:5px 11px;font-size:11px;font-weight:600;
+    padding:3px 8px;font-size:10px;font-weight:600;
     cursor:pointer;transition:background .18s,color .18s;
     white-space:nowrap;
   }}
@@ -665,18 +665,18 @@ def _make_cropper_html(img) -> str:
   /* action buttons */
   .lc-act{{
     background:#111;color:#4b5563;
-    border:1px solid #222;border-radius:7px;
-    padding:5px 11px;font-size:11px;font-weight:600;
+    border:1px solid #222;border-radius:6px;
+    padding:3px 8px;font-size:10px;font-weight:600;
     cursor:pointer;transition:all .18s;white-space:nowrap;
   }}
   .lc-act:hover{{background:#1a1a1a;color:#e5e7eb;border-color:#333;}}
   .lc-act.lc-active{{background:#16a34a;color:#fff;border-color:#15803d;}}
   /* social chips */
   .lc-chip{{
-    display:inline-flex;align-items:center;gap:4px;
+    display:inline-flex;align-items:center;gap:3px;
     background:#0a0a0a;color:#4b5563;
     border:1px solid #222;border-radius:9999px;
-    padding:4px 11px;font-size:10.5px;font-weight:600;
+    padding:3px 9px;font-size:9.5px;font-weight:600;
     cursor:pointer;transition:all .18s;white-space:nowrap;
   }}
   .lc-chip:hover{{background:#111;color:#e5e7eb;border-color:#333;}}
@@ -708,11 +708,25 @@ def _make_cropper_html(img) -> str:
 </style>
 
 <div id="lc-editor">
+
+  <!-- Canvas -->
+  <div id="lc-crop-wrap">
+    <canvas id="lc-canvas"></canvas>
+    <img id="lc-crop-img" src="data:image/png;base64,{b64}" data-w="{w}" data-h="{h}" style="display:none;">
+  </div>
+
+  <!-- Info bar -->
+  <div id="lc-infobar">
+    <div id="lc-crop-info">⏳ กำลังเตรียม...</div>
+    <div id="lc-hint">ลากเพื่อเลือก &nbsp;·&nbsp; ลากขอบปรับขนาด &nbsp;·&nbsp; ลากกลางเพื่อย้าย</div>
+  </div>
+
+  <!-- Toolbar (below canvas) -->
   <div id="lc-toolbar">
 
     <!-- Row 1: Aspect ratio -->
     <div class="lc-row">
-      <span class="lc-lbl">Ratio</span>
+      <span class="lc-lbl">สัดส่วน</span>
       <div class="lc-grp">
         <button class="lc-ratio-btn lc-active" data-ratio="free">Free</button>
         <button class="lc-ratio-btn" data-ratio="1:1">1:1</button>
@@ -726,33 +740,34 @@ def _make_cropper_html(img) -> str:
         <button class="lc-ratio-btn" data-ratio="2:3">2:3</button>
       </div>
       <div class="lc-sep"></div>
-      <button class="lc-act" id="lc-btn-swap" title="สลับ Portrait ↔ Landscape">⇄ Swap AR</button>
-      <button class="lc-act" id="lc-btn-grid" title="Rule of Thirds">⊞ Grid</button>
+      <button class="lc-act" id="lc-btn-swap" title="สลับ Portrait ↔ Landscape">⇄ Swap</button>
+      <button class="lc-act" id="lc-btn-img-grid" title="Grid ทั้งภาพ">⊟ Grid ภาพ</button>
+      <button class="lc-act" id="lc-btn-grid" title="Grid ในกรอบ Crop">⊞ Grid Crop</button>
       <button class="lc-act" id="lc-btn-center" title="จัดกึ่งกลาง">⊙ Center</button>
       <button class="lc-act" id="lc-btn-reset" title="ล้างการเลือก">✕ Clear</button>
       <div class="lc-sep"></div>
-      <button class="lc-act" id="lc-btn-zoom-out" title="ซูมออก" style="padding:5px 9px;font-size:15px;line-height:1;">−</button>
+      <button class="lc-act" id="lc-btn-zoom-out" title="ซูมออก" style="padding:3px 7px;font-size:13px;line-height:1;">−</button>
       <span id="lc-zoom-val">100%</span>
-      <button class="lc-act" id="lc-btn-zoom-in" title="ซูมเข้า" style="padding:5px 9px;font-size:15px;line-height:1;">+</button>
+      <button class="lc-act" id="lc-btn-zoom-in" title="ซูมเข้า" style="padding:3px 7px;font-size:13px;line-height:1;">+</button>
       <button class="lc-act" id="lc-btn-zoom-fit" title="Fit to screen">⊡ Fit</button>
     </div>
 
-    <!-- Row 3: Rotate & Flip -->
+    <!-- Row 2: Rotate & Flip -->
     <div class="lc-row">
-      <span class="lc-lbl">Transform</span>
+      <span class="lc-lbl">แปลงภาพ</span>
       <div class="lc-grp">
         <button class="lc-ratio-btn" id="lc-btn-rot-l" title="หมุน 90° ทวนเข็ม">↺ 90° L</button>
         <button class="lc-ratio-btn" id="lc-btn-rot-r" title="หมุน 90° ตามเข็ม">↻ 90° R</button>
         <button class="lc-ratio-btn" id="lc-btn-rot-180" title="หมุน 180°">↕ 180°</button>
       </div>
       <div class="lc-sep"></div>
-      <button class="lc-act" id="lc-btn-flip-h" title="กระจกซ้าย-ขวา">↔ Flip H</button>
-      <button class="lc-act" id="lc-btn-flip-v" title="กระจกบน-ล่าง">↕ Flip V</button>
+      <button class="lc-act" id="lc-btn-flip-h" title="กระจกซ้าย-ขวา">↔ พลิก H</button>
+      <button class="lc-act" id="lc-btn-flip-v" title="กระจกบน-ล่าง">↕ พลิก V</button>
       <div class="lc-sep"></div>
-      <button class="lc-act" id="lc-btn-xform-reset" title="รีเซ็ต transform ทั้งหมด">⟲ Reset</button>
+      <button class="lc-act" id="lc-btn-xform-reset" title="รีเซ็ต transform ทั้งหมด">⟲ รีเซ็ต</button>
     </div>
 
-    <!-- Row 2: Social presets -->
+    <!-- Row 3: Social presets -->
     <div class="lc-row">
       <span class="lc-lbl">Social</span>
       <button class="lc-chip" data-ratio="4:5">📷 IG Feed</button>
@@ -766,30 +781,18 @@ def _make_cropper_html(img) -> str:
     </div>
 
   </div>
-
-  <!-- Canvas -->
-  <div id="lc-crop-wrap">
-    <canvas id="lc-canvas"></canvas>
-    <img id="lc-crop-img" src="data:image/png;base64,{b64}" data-w="{w}" data-h="{h}" style="display:none;">
-  </div>
-
-  <!-- Info bar -->
-  <div id="lc-infobar">
-    <div id="lc-crop-info">⏳ กำลังเตรียม...</div>
-    <div id="lc-hint">ลากเพื่อเลือก &nbsp;·&nbsp; ลากขอบปรับขนาด &nbsp;·&nbsp; ลากกลางเพื่อย้าย</div>
-  </div>
 </div>
 """
 
 
-def _save_dir_row(default_subdir: str, label: str = "📁 Output Folder"):
+def _save_dir_row(default_subdir: str, label: str = "📁 โฟลเดอร์บันทึก"):
     """Render a save-dir row. Returns (save_dir_textbox, save_status_textbox)."""
     with gr.Row():
         save_dir = gr.Textbox(
             value=_output_subdir(default_subdir),
             label=label, scale=5, lines=1,
         )
-        open_btn = gr.Button("📂 Open Folder", variant="secondary", scale=1, min_width=130)
+        open_btn = gr.Button("📂 เปิดโฟลเดอร์", variant="secondary", scale=1, min_width=130)
     save_status = gr.Textbox(label="", interactive=False, lines=1, visible=True,
                              elem_classes=["lc-status"])
     open_btn.click(fn=_open_folder, inputs=[save_dir], outputs=[save_status])
@@ -817,10 +820,10 @@ def resize_image(image, width, height, maintain_ar, resample_filter, output_dir,
         return None, "⚠️ Please upload an image first."
     try:
         filter_map = {
-            "Lanczos (Best Quality)": Image.LANCZOS,
+            "Lanczos (คุณภาพสูงสุด)": Image.LANCZOS,
             "Bicubic": Image.BICUBIC,
             "Bilinear": Image.BILINEAR,
-            "Nearest (Fastest)": Image.NEAREST,
+            "Nearest (เร็วสุด)": Image.NEAREST,
         }
         filt = filter_map.get(resample_filter, Image.LANCZOS)
         w, h = int(width), int(height)
@@ -1611,7 +1614,7 @@ CROP_INIT_JS = """
     var origW = parseInt(img.getAttribute('data-w'));
     var origH = parseInt(img.getAttribute('data-h'));
     var maxW  = (canvas.parentElement ? canvas.parentElement.clientWidth : 600) - 24;
-    var maxH  = Math.round(window.innerHeight * 0.46);
+    var maxH  = Math.round(window.innerHeight * 0.38);
     if (!maxW || maxW < 10) maxW = 600;
     if (!maxH || maxH < 10) maxH = 460;
     var scale = Math.min(1, maxW / origW, maxH / origH);
@@ -1664,7 +1667,8 @@ CROP_INIT_JS = """
     var dragMode = 'draw';          // 'draw' | 'move' | 'resize-<id>'
     var dragStart = null;           // snapshot of sx/sy/ex/ey at mousedown
     var lockedRatio = null;         // null = free  |  {w, h}
-    var gridMode = 0; // 0=off  1=rule-of-thirds  2=golden-ratio(φ)  3=diagonal+cross
+    var gridMode    = 0; // 0=off  1=rule-of-thirds  2=golden-ratio(φ)  3=diagonal+cross  (crop box)
+    var imgGridMode = 0; // same cycle but for the full canvas image
     var HR = 7;                     // handle radius px
 
     // ── Helpers ───────────────────────────────────────────
@@ -1732,6 +1736,36 @@ CROP_INIT_JS = """
     function redraw() {
       ctx.clearRect(0,0,canvas.width,canvas.height);
       drawTransformed();
+      // ── Full-image grid overlay ───────────────────────────
+      if(imgGridMode > 0) {
+        ctx.save();
+        ctx.strokeStyle='rgba(255,255,255,0.22)'; ctx.lineWidth=1; ctx.setLineDash([3,4]);
+        ctx.beginPath();
+        if(imgGridMode === 1) {
+          var gx1=canvas.width/3, gx2=2*canvas.width/3;
+          var gy1=canvas.height/3, gy2=2*canvas.height/3;
+          ctx.moveTo(gx1,0); ctx.lineTo(gx1,canvas.height);
+          ctx.moveTo(gx2,0); ctx.lineTo(gx2,canvas.height);
+          ctx.moveTo(0,gy1); ctx.lineTo(canvas.width,gy1);
+          ctx.moveTo(0,gy2); ctx.lineTo(canvas.width,gy2);
+        } else if(imgGridMode === 2) {
+          var phi=0.618;
+          var ipx1=canvas.width*(1-phi), ipx2=canvas.width*phi;
+          var ipy1=canvas.height*(1-phi), ipy2=canvas.height*phi;
+          ctx.moveTo(ipx1,0); ctx.lineTo(ipx1,canvas.height);
+          ctx.moveTo(ipx2,0); ctx.lineTo(ipx2,canvas.height);
+          ctx.moveTo(0,ipy1); ctx.lineTo(canvas.width,ipy1);
+          ctx.moveTo(0,ipy2); ctx.lineTo(canvas.width,ipy2);
+        } else if(imgGridMode === 3) {
+          ctx.moveTo(0,0); ctx.lineTo(canvas.width,canvas.height);
+          ctx.moveTo(canvas.width,0); ctx.lineTo(0,canvas.height);
+          ctx.moveTo(canvas.width/2,0); ctx.lineTo(canvas.width/2,canvas.height);
+          ctx.moveTo(0,canvas.height/2); ctx.lineTo(canvas.width,canvas.height/2);
+        }
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
       var r=selRect();
       if((!hasSel && !isDown) || r.w<2 || r.h<2) return;
       // dim outside
@@ -1918,15 +1952,27 @@ CROP_INIT_JS = """
       });
     });
 
-    // Grid cycle: Off → 3×3 → φ → Diagonal → Off
-    var GRID_LABELS = ['⊞ Grid', '⊞ 3×3', '⊞ φ', '⊞ ✕'];
-    var GRID_TITLES = ['แสดง Grid', 'Rule of Thirds (3×3)', 'Golden Ratio (φ)', 'Diagonal + Center'];
+    // Crop-box grid cycle: Off → 3×3 → φ → Diagonal → Off
+    var GRID_LABELS = ['⊞ Grid Crop', '⊞ 3×3', '⊞ φ', '⊞ ✕'];
+    var GRID_TITLES = ['Grid ในกรอบ Crop', 'Rule of Thirds (3×3)', 'Golden Ratio (φ)', 'Diagonal + Center'];
     var gBtn=document.getElementById('lc-btn-grid');
     if(gBtn) gBtn.addEventListener('click',function(){
       gridMode = (gridMode + 1) % 4;
       gBtn.textContent = GRID_LABELS[gridMode];
       gBtn.title = GRID_TITLES[gridMode];
       gBtn.classList.toggle('lc-active', gridMode > 0);
+      redraw();
+    });
+
+    // Full-image grid cycle: Off → 3×3 → φ → Diagonal → Off
+    var IMG_GRID_LABELS = ['⊟ Grid ภาพ', '⊟ 3×3', '⊟ φ', '⊟ ✕'];
+    var IMG_GRID_TITLES = ['Grid ทั้งภาพ', 'Rule of Thirds (ทั้งภาพ)', 'Golden Ratio (ทั้งภาพ)', 'Diagonal + Center (ทั้งภาพ)'];
+    var igBtn=document.getElementById('lc-btn-img-grid');
+    if(igBtn) igBtn.addEventListener('click',function(){
+      imgGridMode = (imgGridMode + 1) % 4;
+      igBtn.textContent = IMG_GRID_LABELS[imgGridMode];
+      igBtn.title = IMG_GRID_TITLES[imgGridMode];
+      igBtn.classList.toggle('lc-active', imgGridMode > 0);
       redraw();
     });
 
@@ -2303,7 +2349,7 @@ def _build_download_tab(cfg: dict):
             s["stop"] = True
 
     # ── UI layout ─────────────────────────────────────────────────────────────
-    gr.HTML('<div class="sec-head">Video Downloader · yt-dlp</div>')
+    gr.HTML('<div class="sec-head">ดาวน์โหลดวีดีโอ · yt-dlp</div>')
     gr.HTML(
         '<div class="lc-info-box">'
         '📋 วิธีใช้: วางลิ้งก์ → กด <b>ดึงข้อมูล</b> → เลือกความละเอียด → กด <b>ดาวน์โหลด</b><br>'
@@ -2365,27 +2411,27 @@ def build_app():
         with gr.Tabs():
 
             # ── AI: Photo Upscale ──────────────────────────
-            with gr.Tab("🔬 AI Upscale Photo"):
-                gr.HTML('<div class="sec-head">AI Photo Upscaler · Real-ESRGAN</div>')
+            with gr.Tab("🔬 AI เพิ่มความชัด (ภาพ)"):
+                gr.HTML('<div class="sec-head">AI เพิ่มความคมชัดภาพ · Real-ESRGAN</div>')
                 with gr.Row():
                     with gr.Column(scale=1):
-                        up_in = gr.Image(label="Input Image", type="pil", height=380)
+                        up_in = gr.Image(label="ภาพต้นฉบับ", type="pil", height=380)
                         with gr.Row():
                             up_scale = gr.Radio(
-                                choices=[2, 4], value=cfg["up_scale"], label="Scale Factor", type="value"
+                                choices=[2, 4], value=cfg["up_scale"], label="ขยายกี่เท่า", type="value"
                             )
                             up_model = gr.Radio(
                                 choices=["General Photo", "General (Lightweight)", "Anime / Illustration"],
-                                value=cfg["up_model"], label="Model"
+                                value=cfg["up_model"], label="โมเดล"
                             )
                         with gr.Row():
-                            up_btn  = gr.Button("🚀 Upscale Photo", variant="primary", scale=4)
-                            up_stop = gr.Button("⏹ Stop", variant="stop", scale=1, min_width=90)
+                            up_btn  = gr.Button("🚀 เพิ่มความชัด", variant="primary", scale=4)
+                            up_stop = gr.Button("⏹ หยุด", variant="stop", scale=1, min_width=90)
                     with gr.Column(scale=1):
-                        up_out = gr.Image(label="Upscaled Result", height=380, interactive=False)
+                        up_out = gr.Image(label="ผลลัพธ์", height=380, interactive=False)
                         up_status = gr.Markdown(value="", elem_classes=["lc-status"])
                 with gr.Row():
-                    up_fmt = gr.Radio(choices=["PNG", "JPEG", "WEBP"], value=cfg["up_fmt"], label="Save Format", scale=1)
+                    up_fmt = gr.Radio(choices=["PNG", "JPEG", "WEBP"], value=cfg["up_fmt"], label="รูปแบบบันทึก", scale=1)
                 up_out_dir, _ = _save_dir_row("photo")
                 up_out_dir.value = cfg["up_out_dir"]
                 up_event = up_btn.click(upscale_photo, inputs=[up_in, up_scale, up_model, up_out_dir, up_fmt], outputs=[up_out, up_status])
@@ -2397,26 +2443,26 @@ def build_app():
                 up_out_dir.change(_make_saver("up_out_dir"), inputs=[up_out_dir])
 
             # ── AI: Video Upscale ──────────────────────────
-            with gr.Tab("🎬 AI Upscale Video"):
-                gr.HTML('<div class="sec-head">AI Video Upscaler · Real-ESRGAN (4x)</div>')
+            with gr.Tab("🎬 AI เพิ่มความชัด (วีดีโอ)"):
+                gr.HTML('<div class="sec-head">AI เพิ่มความคมชัดวีดีโอ · Real-ESRGAN (4x)</div>')
                 gr.HTML(WARN_GPU)
                 with gr.Row():
                     with gr.Column(scale=1):
-                        vid_in = gr.Video(label="Input Video")
+                        vid_in = gr.Video(label="วีดีโอต้นฉบับ")
                         with gr.Row():
                             vid_scale = gr.Radio(
-                                choices=[2, 4], value=cfg["vid_scale"], label="Scale Factor (General only)",
+                                choices=[2, 4], value=cfg["vid_scale"], label="ขยายกี่เท่า (General เท่านั้น)",
                                 type="value"
                             )
                             vid_model = gr.Radio(
                                 choices=["General (Best Quality)", "General (Fast)", "Anime / Cartoon"],
-                                value=cfg["vid_model"], label="Model"
+                                value=cfg["vid_model"], label="โมเดล"
                             )
                         with gr.Row():
-                            vid_btn  = gr.Button("🚀 Upscale Video", variant="primary", scale=4)
-                            vid_stop = gr.Button("⏹ Stop", variant="stop", scale=1, min_width=90)
+                            vid_btn  = gr.Button("🚀 เพิ่มความชัด", variant="primary", scale=4)
+                            vid_stop = gr.Button("⏹ หยุด", variant="stop", scale=1, min_width=90)
                     with gr.Column(scale=1):
-                        vid_out = gr.Video(label="Upscaled Video", visible=True)
+                        vid_out = gr.Video(label="วีดีโอผลลัพธ์", visible=True)
                         vid_status = gr.Markdown(value="", elem_classes=["lc-status"])
                 vid_out_dir, _ = _save_dir_row("video")
                 vid_out_dir.value = cfg["vid_out_dir"]
@@ -2427,36 +2473,36 @@ def build_app():
                 vid_out_dir.change(_make_saver("vid_out_dir"), inputs=[vid_out_dir])
 
             # ── AI: Remove Background ──────────────────────
-            with gr.Tab("✂️ AI Remove BG"):
-                gr.HTML('<div class="sec-head">AI Background Remover · BiRefNet</div>')
+            with gr.Tab("✂️ AI ลบพื้นหลัง"):
+                gr.HTML('<div class="sec-head">AI ลบพื้นหลัง · BiRefNet</div>')
                 with gr.Row():
                     with gr.Column(scale=1):
-                        bg_in = gr.Image(label="Input Image", type="pil", height=340)
+                        bg_in = gr.Image(label="ภาพต้นฉบับ", type="pil", height=340)
                         bg_model = gr.Dropdown(
                             choices=["BiRefNet — General (Best)", "BiRefNet — Portrait", "U2Net", "RMBG 1.4"],
-                            value=cfg["bg_model"], label="AI Model",
+                            value=cfg["bg_model"], label="โมเดล AI",
                         )
                         bg_option = gr.Radio(
-                            choices=["Transparent", "White", "Black", "Red", "Custom Image"],
-                            value=cfg["bg_option"], label="Background Replacement",
+                            choices=["โปร่งใส", "ขาว", "ดำ", "แดง", "รูปภาพเอง"],
+                            value=cfg["bg_option"], label="พื้นหลังใหม่",
                         )
                         bg_custom = gr.Image(
-                            label="Custom Background Image", type="pil",
-                            visible=(cfg["bg_option"] == "Custom Image"), height=130
+                            label="รูปพื้นหลังเอง", type="pil",
+                            visible=(cfg["bg_option"] == "รูปภาพเอง"), height=130
                         )
                         with gr.Row():
-                            bg_btn  = gr.Button("🚀 Remove Background", variant="primary", scale=4)
-                            bg_stop = gr.Button("⏹ Stop", variant="stop", scale=1, min_width=90)
+                            bg_btn  = gr.Button("🚀 ลบพื้นหลัง", variant="primary", scale=4)
+                            bg_stop = gr.Button("⏹ หยุด", variant="stop", scale=1, min_width=90)
 
                         def toggle_custom(choice):
-                            return gr.update(visible=(choice == "Custom Image"))
+                            return gr.update(visible=(choice == "รูปภาพเอง"))
                         bg_option.change(toggle_custom, bg_option, bg_custom)
 
                     with gr.Column(scale=1):
-                        bg_out = gr.Image(label="Result", height=340, interactive=False)
+                        bg_out = gr.Image(label="ผลลัพธ์", height=340, interactive=False)
                         bg_status = gr.Markdown(value="", elem_classes=["lc-status"])
                 with gr.Row():
-                    bg_fmt = gr.Radio(choices=["PNG", "JPEG", "WEBP"], value=cfg["bg_fmt"], label="Save Format (Transparent → PNG always)", scale=1)
+                    bg_fmt = gr.Radio(choices=["PNG", "JPEG", "WEBP"], value=cfg["bg_fmt"], label="รูปแบบบันทึก (โปร่งใสต้องเป็น PNG)", scale=1)
                 bg_out_dir, _ = _save_dir_row("remove_bg")
                 bg_out_dir.value = cfg["bg_out_dir"]
                 bg_event = bg_btn.click(remove_background, inputs=[bg_in, bg_model, bg_option, bg_custom, bg_out_dir, bg_fmt], outputs=[bg_out, bg_status])
@@ -2467,8 +2513,8 @@ def build_app():
                 bg_out_dir.change(_make_saver("bg_out_dir"), inputs=[bg_out_dir])
 
             # ── AI: Enhance Image ──────────────────────────
-            with gr.Tab("🪄 AI Restore Photo"):
-                gr.HTML('<div class="sec-head">AI Photo Restoration · GFPGAN v1.4</div>')
+            with gr.Tab("🪄 AI ฟื้นฟูภาพ"):
+                gr.HTML('<div class="sec-head">AI ฟื้นฟูภาพ · GFPGAN v1.4</div>')
                 gr.HTML(
                     '<div class="lc-info-box">'
                     '🪄 ฟื้นฟูรูปเก่า รูปแตก รูปเสีย — AI จะตรวจจับและซ่อมแซมใบหน้าโดยเฉพาะ<br>'
@@ -2480,17 +2526,17 @@ def build_app():
                     with gr.Column(scale=1):
                         enh_in = gr.Image(label="รูปที่ต้องการฟื้นฟู", type="pil", height=340)
                         enh_scale = gr.Radio(
-                            choices=[1, 2], value=cfg["enh_scale"], label="Upscale Factor", type="value"
+                            choices=[1, 2], value=cfg["enh_scale"], label="ขยายกี่เท่า", type="value"
                         )
                         enh_bg = gr.Checkbox(value=cfg["enh_bg"], label="ขยาย/ปรับภาพพื้นหลังด้วย (Real-ESRGAN)")
                         with gr.Row():
-                            enh_btn  = gr.Button("🪄 Restore Photo", variant="primary", scale=4)
-                            enh_stop = gr.Button("⏹ Stop", variant="stop", scale=1, min_width=90)
+                            enh_btn  = gr.Button("🪄 ฟื้นฟูภาพ", variant="primary", scale=4)
+                            enh_stop = gr.Button("⏹ หยุด", variant="stop", scale=1, min_width=90)
                     with gr.Column(scale=1):
                         enh_out = gr.Image(label="ผลลัพธ์ที่ฟื้นฟูแล้ว", height=340, interactive=False)
                         enh_status = gr.Markdown(value="", elem_classes=["lc-status"])
                 with gr.Row():
-                    enh_fmt = gr.Radio(choices=["PNG", "JPEG", "WEBP"], value=cfg["enh_fmt"], label="Save Format", scale=1)
+                    enh_fmt = gr.Radio(choices=["PNG", "JPEG", "WEBP"], value=cfg["enh_fmt"], label="รูปแบบบันทึก", scale=1)
                 enh_out_dir, _ = _save_dir_row("enhance")
                 enh_out_dir.value = cfg["enh_out_dir"]
                 enh_event = enh_btn.click(enhance_image, inputs=[enh_in, enh_scale, enh_bg, enh_out_dir, enh_fmt], outputs=[enh_out, enh_status])
@@ -2501,31 +2547,31 @@ def build_app():
                 enh_out_dir.change(_make_saver("enh_out_dir"), inputs=[enh_out_dir])
 
             # ── TOOLS: Resize ──────────────────────────────
-            with gr.Tab("📐 Resize Image"):
-                gr.HTML('<div class="sec-head">Image Resizer</div>')
+            with gr.Tab("📐 ปรับขนาดภาพ"):
+                gr.HTML('<div class="sec-head">ปรับขนาดภาพ</div>')
                 with gr.Row():
                     with gr.Column(scale=1):
-                        res_in = gr.Image(label="Input Image", type="pil", height=320)
-                        res_dims = gr.Textbox(label="Current Dimensions", interactive=False, lines=1)
+                        res_in = gr.Image(label="ภาพต้นฉบับ", type="pil", height=320)
+                        res_dims = gr.Textbox(label="ขนาดปัจจุบัน", interactive=False, lines=1)
 
                         def show_dims(img):
                             return f"{img.width} × {img.height} px" if img else ""
                         res_in.change(show_dims, res_in, res_dims)
 
                         with gr.Row():
-                            res_w = gr.Number(label="Width (px)", value=cfg["res_w"], minimum=1, maximum=16384)
-                            res_h = gr.Number(label="Height (px)", value=cfg["res_h"], minimum=1, maximum=16384)
-                        res_ar = gr.Checkbox(value=cfg["res_ar"], label="Maintain Aspect Ratio")
+                            res_w = gr.Number(label="ความกว้าง (px)", value=cfg["res_w"], minimum=1, maximum=16384)
+                            res_h = gr.Number(label="ความสูง (px)", value=cfg["res_h"], minimum=1, maximum=16384)
+                        res_ar = gr.Checkbox(value=cfg["res_ar"], label="คงสัดส่วนภาพ")
                         res_filter = gr.Dropdown(
-                            choices=["Lanczos (Best Quality)", "Bicubic", "Bilinear", "Nearest (Fastest)"],
-                            value=cfg["res_filter"], label="Resample Filter"
+                            choices=["Lanczos (คุณภาพสูงสุด)", "Bicubic", "Bilinear", "Nearest (เร็วสุด)"],
+                            value=cfg["res_filter"], label="วิธีปรับขนาด"
                         )
-                        res_btn = gr.Button("📐 Resize", variant="primary")
+                        res_btn = gr.Button("📐 ปรับขนาด", variant="primary")
                     with gr.Column(scale=1):
-                        res_out = gr.Image(label="Resized Image", height=320, interactive=False)
+                        res_out = gr.Image(label="ผลลัพธ์", height=320, interactive=False)
                         res_status = gr.Markdown(value="", elem_classes=["lc-status"])
                 with gr.Row():
-                    res_fmt = gr.Radio(choices=["PNG", "JPEG", "WEBP"], value=cfg["res_fmt"], label="Save Format", scale=1)
+                    res_fmt = gr.Radio(choices=["PNG", "JPEG", "WEBP"], value=cfg["res_fmt"], label="รูปแบบบันทึก", scale=1)
                 res_out_dir, _ = _save_dir_row("resize")
                 res_out_dir.value = cfg["res_out_dir"]
                 res_btn.click(resize_image, inputs=[res_in, res_w, res_h, res_ar, res_filter, res_out_dir, res_fmt], outputs=[res_out, res_status])
@@ -2537,7 +2583,7 @@ def build_app():
                 res_out_dir.change(_make_saver("res_out_dir"), inputs=[res_out_dir])
 
             # ── TOOLS: Crop ────────────────────────────────
-            with gr.Tab("✂️ Crop Image"):
+            with gr.Tab("✂️ ครอปภาพ"):
                 gr.HTML('<div class="sec-head">Image Cropper · ลากเพื่อเลือกพื้นที่</div>')
                 with gr.Row():
                     with gr.Column(scale=1):
@@ -2551,10 +2597,10 @@ def build_app():
                         with gr.Row():
                             crop_btn = gr.Button("✂️ Crop", variant="primary", scale=2)
                     with gr.Column(scale=1):
-                        crop_out = gr.Image(label="Cropped Result", interactive=False)
+                        crop_out = gr.Image(label="ผลลัพธ์ที่ครอป", interactive=False)
                         crop_status = gr.Markdown(value="", elem_classes=["lc-status"])
                 with gr.Row():
-                    crop_fmt = gr.Radio(choices=["PNG", "JPEG", "WEBP"], value=cfg["crop_fmt"], label="Save Format", scale=1)
+                    crop_fmt = gr.Radio(choices=["PNG", "JPEG", "WEBP"], value=cfg["crop_fmt"], label="รูปแบบบันทึก", scale=1)
                 crop_out_dir, _ = _save_dir_row("crop")
                 crop_out_dir.value = cfg["crop_out_dir"]
                 crop_in.change(_make_cropper_html, inputs=[crop_in], outputs=[crop_display]).then(fn=None, js=CROP_INIT_JS)
@@ -2568,20 +2614,20 @@ def build_app():
                 crop_out_dir.change(_make_saver("crop_out_dir"), inputs=[crop_out_dir])
 
             # ── TOOLS: Convert ─────────────────────────────
-            with gr.Tab("🔄 Convert Format"):
-                gr.HTML('<div class="sec-head">Image Format Converter</div>')
+            with gr.Tab("🔄 แปลงรูปแบบ"):
+                gr.HTML('<div class="sec-head">แปลงรูปแบบไฟล์ภาพ</div>')
                 with gr.Row():
                     with gr.Column(scale=1):
-                        conv_in = gr.Image(label="Input Image", type="pil", height=300)
+                        conv_in = gr.Image(label="ภาพต้นฉบับ", type="pil", height=300)
                         conv_fmt = gr.Radio(
                             choices=["JPEG", "PNG", "WEBP", "BMP", "TIFF"],
-                            value=cfg["conv_fmt"], label="Output Format"
+                            value=cfg["conv_fmt"], label="รูปแบบที่ต้องการ"
                         )
-                        conv_q = gr.Slider(1, 100, value=cfg["conv_q"], step=1, label="Quality (JPEG / WEBP only)")
-                        conv_btn = gr.Button("🔄 Convert", variant="primary")
+                        conv_q = gr.Slider(1, 100, value=cfg["conv_q"], step=1, label="คุณภาพ (เฉพาะ JPEG / WEBP)")
+                        conv_btn = gr.Button("🔄 แปลงรูปแบบ", variant="primary")
                     with gr.Column(scale=1):
-                        conv_preview = gr.Image(label="Preview", height=300, interactive=False)
-                        conv_file = gr.File(label="⬇️ Download Converted File")
+                        conv_preview = gr.Image(label="ตัวอย่าง", height=300, interactive=False)
+                        conv_file = gr.File(label="⬇️ ดาวน์โหลดไฟล์")
                         conv_status = gr.Markdown(value="", elem_classes=["lc-status"])
                 conv_out_dir, _ = _save_dir_row("convert")
                 conv_out_dir.value = cfg["conv_out_dir"]
@@ -2591,7 +2637,7 @@ def build_app():
                 conv_out_dir.change(_make_saver("conv_out_dir"), inputs=[conv_out_dir])
 
             # ── Download Video ─────────────────────────────
-            with gr.Tab("⬇️ Download Video"):
+            with gr.Tab("⬇️ ดาวน์โหลดวีดีโอ"):
                 _build_download_tab(cfg)
 
     demo.queue()
