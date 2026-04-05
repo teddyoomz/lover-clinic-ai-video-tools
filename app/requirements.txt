@@ -14,3 +14,5 @@ pydantic==2.10.6
 requests
 yt-dlp
 imageio-ffmpeg
+transformers>=4.45.0
+iopaint

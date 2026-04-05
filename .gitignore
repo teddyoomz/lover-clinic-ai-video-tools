@@ -33,6 +33,7 @@ app/logs/
 
 # Downloaded model weights (auto-downloaded at runtime)
 app/gfpgan/
+app/iopaint_models/
 
 # User output files
 output/
