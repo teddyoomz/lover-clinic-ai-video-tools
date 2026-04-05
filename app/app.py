@@ -1129,15 +1129,8 @@ def _load_wm_models(device=None):
 
     if _wm_lama_manager is None:
         logger.info("Loading LaMa inpainting model…")
-        try:
-            from iopaint.model_manager import ModelManager
-            _wm_lama_manager = ModelManager(name="lama", device=device)
-        except Exception:
-            logger.info("LaMa model not found, downloading…")
-            import subprocess as _sp
-            _sp.run([sys.executable, "-m", "iopaint", "download", "--model", "lama"], check=True)
-            from iopaint.model_manager import ModelManager
-            _wm_lama_manager = ModelManager(name="lama", device=device)
+        from simple_lama_inpainting import SimpleLama
+        _wm_lama_manager = SimpleLama()
         logger.info("LaMa loaded OK")
 
     return _wm_florence_model, _wm_florence_processor, _wm_lama_manager, device
@@ -1184,16 +1177,15 @@ def _detect_watermarks(image_bgr, model, processor, device, max_bbox_percent=10.
     return bboxes, mask
 
 
-def _inpaint_lama(image_bgr, mask, lama_mgr):
-    """Inpaint masked region using LaMa. Returns result BGR numpy array."""
-    from iopaint.schema import InpaintRequest, HDStrategy
-    config = InpaintRequest(
-        hd_strategy=HDStrategy.CROP,
-        hd_strategy_crop_trigger_size=800,
-        hd_strategy_crop_margin=250,
-    )
-    result = lama_mgr(image_bgr, mask, config)
-    return result
+def _inpaint_lama(image_bgr, mask, lama_model):
+    """Inpaint masked region using SimpleLama. Returns result BGR numpy array."""
+    from PIL import Image as _PILImage
+    img_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
+    pil_img = _PILImage.fromarray(img_rgb)
+    pil_mask = _PILImage.fromarray(mask)
+    result_pil = lama_model(pil_img, pil_mask)
+    result_bgr = cv2.cvtColor(np.array(result_pil), cv2.COLOR_RGB2BGR)
+    return result_bgr
 
 
 def remove_watermark_image(image, wm_prompt, wm_max_bbox, output_dir, progress=gr.Progress()):
