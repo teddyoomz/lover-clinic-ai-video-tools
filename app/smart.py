@@ -460,6 +460,11 @@ class SmartSetup:
             self.p(c(Y, "  🎮 NVIDIA detected — installing onnxruntime-gpu (replaces CPU onnxruntime)..."))
             self._run(["uv", "pip", "install", "onnxruntime-gpu", "--force-reinstall"])
 
+        # iopaint requires pillow==9.5.0 but we need pillow>=10, so install
+        # it with --no-deps to avoid the conflict, then let our own pillow win.
+        self.p(c(Y, "  📦 Installing iopaint (--no-deps, avoids pillow conflict)..."))
+        self._run(["uv", "pip", "install", "iopaint", "--no-deps"])
+
         # requirements.txt installs basicsr/realesrgan/devicetorch which may pull
         # in a plain PyPI torch.  Always call _install_torch() after deps so the
         # correct GPU/CPU build is pinned.  _install_torch(force=False) is now
