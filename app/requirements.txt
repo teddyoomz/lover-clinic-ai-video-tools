@@ -14,7 +14,7 @@ pydantic==2.10.6
 requests
 yt-dlp
 imageio-ffmpeg
-transformers>=4.45.0
+transformers>=4.45.0,<5.0.0
 einops
 easydict
 yacs
