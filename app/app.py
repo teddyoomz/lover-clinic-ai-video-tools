@@ -1206,7 +1206,9 @@ def _propagate_mask_sam2(predictor, mask, video_path, total_frames, progress):
         progress: Gradio progress callback
 
     Returns:
-        dict {frame_idx: (H, W) uint8 mask} or None on failure.
+        (masks_dict, jpeg_dir) — masks is dict {frame_idx: (H,W) uint8 mask},
+        jpeg_dir is the temp directory with extracted JPEG frames (caller must
+        clean up). Returns (None, None) on failure.
     """
     import torch
 
@@ -1225,7 +1227,8 @@ def _propagate_mask_sam2(predictor, mask, video_path, total_frames, progress):
         cap.release()
 
         if fidx == 0:
-            return None
+            shutil.rmtree(jpeg_dir, ignore_errors=True)
+            return None, None
 
         progress(0.08, desc="SAM2: กำลังเริ่ม tracking…")
         state = predictor.init_state(video_path=jpeg_dir)
@@ -1250,13 +1253,13 @@ def _propagate_mask_sam2(predictor, mask, video_path, total_frames, progress):
 
         predictor.reset_state(state)
         logger.info(f"SAM2 propagated {len(masks)} frame masks")
-        return masks if masks else None
+        # Keep jpeg_dir alive — caller can reuse frames for edge tracking fallback
+        return (masks if masks else None), jpeg_dir
 
     except Exception as e:
         logger.error(f"SAM2 propagation failed: {e}\n{traceback.format_exc()}")
-        return None
-    finally:
         shutil.rmtree(jpeg_dir, ignore_errors=True)
+        return None, None
 
 
 def _validate_sam2_masks(masks, original_mask, min_frames=10, stuck_threshold=20.0):
@@ -1316,7 +1319,8 @@ def _validate_sam2_masks(masks, original_mask, min_frames=10, stuck_threshold=20
 # ── Edge-based watermark tracking across video frames ────────
 
 
-def _track_watermark_edges(first_frame, mask, video_path, total_frames, progress):
+def _track_watermark_edges(first_frame, mask, video_path, total_frames, progress,
+                           frames_dir=None):
     """Track watermark position across frames using edge-based template matching.
 
     Strategy:
@@ -1325,6 +1329,9 @@ def _track_watermark_edges(first_frame, mask, video_path, total_frames, progress
     - Full-frame search every frame (handles scene cuts & jumps)
     - Edge matching focuses on the watermark's SHAPE, not its pixel values,
       so it works even when the watermark is semi-transparent
+
+    If frames_dir is provided (e.g. from SAM2's extracted JPEGs), reads frames
+    from there instead of re-opening the video — avoids redundant decoding.
 
     Returns dict {frame_idx: (H, W) uint8 mask}
     """
@@ -1358,15 +1365,25 @@ def _track_watermark_edges(first_frame, mask, video_path, total_frames, progress
         logger.warning("No trackable watermark regions — using fixed mask for all frames")
         return None
 
-    logger.info(f"Edge tracking {len(trackers)} watermark regions across {total_frames} frames")
+    use_jpegs = frames_dir is not None and os.path.isdir(frames_dir)
+    if use_jpegs:
+        logger.info(f"Edge tracking {len(trackers)} regions × {total_frames} frames (reusing SAM2 JPEGs)")
+    else:
+        logger.info(f"Edge tracking {len(trackers)} regions × {total_frames} frames")
 
-    cap = cv2.VideoCapture(video_path)
+    cap = None if use_jpegs else cv2.VideoCapture(video_path)
     masks = {}
 
     for fidx in range(total_frames):
-        ret, frame = cap.read()
-        if not ret:
-            break
+        if use_jpegs:
+            jpeg_path = os.path.join(frames_dir, f"{fidx:06d}.jpg")
+            frame = cv2.imread(jpeg_path)
+            if frame is None:
+                break
+        else:
+            ret, frame = cap.read()
+            if not ret:
+                break
 
         frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
         frame_edges = cv2.Canny(frame_gray, 30, 100)
@@ -1410,7 +1427,8 @@ def _track_watermark_edges(first_frame, mask, video_path, total_frames, progress
             pct = 0.05 + 0.25 * (fidx / total_frames)
             progress(pct, desc=f"ติดตาม Watermark เฟรม {fidx + 1}/{total_frames}…")
 
-    cap.release()
+    if cap is not None:
+        cap.release()
     logger.info(f"Edge tracking complete — {len(masks)} frames")
     return masks
 
@@ -1507,13 +1525,14 @@ def remove_watermark_video(video_path, editor_data, wm_mode, output_dir, progres
         # ── Smart Auto tracking (hybrid SAM2 → edge fallback) ──
         tracked_masks = None
         tracking_method = "Fixed"
+        sam2_jpeg_dir = None  # SAM2 extracted frames — reused by edge fallback
 
         if tracking:
             # Step 1: Try SAM2 first (best for opaque logos/objects)
             sam2 = _load_sam2()
             if sam2 is not None:
                 progress(0.03, desc="SAM2: กำลังวิเคราะห์…")
-                sam2_masks = _propagate_mask_sam2(
+                sam2_masks, sam2_jpeg_dir = _propagate_mask_sam2(
                     sam2, mask, video_path, total_frames, progress,
                 )
 
@@ -1535,12 +1554,17 @@ def remove_watermark_video(video_path, editor_data, wm_mode, output_dir, progres
                 progress(0.25, desc="Edge tracking: กำลังวิเคราะห์…")
                 tracked_masks = _track_watermark_edges(
                     first_frame, mask, video_path, total_frames, progress,
+                    frames_dir=sam2_jpeg_dir,  # reuse SAM2 JPEGs if available
                 )
                 if tracked_masks is not None:
                     tracking_method = "Edge"
                 else:
                     logger.info("Edge tracking also returned None — using fixed mask")
                     tracking_method = "Fixed"
+
+            # Clean up SAM2 extracted frames
+            if sam2_jpeg_dir is not None:
+                shutil.rmtree(sam2_jpeg_dir, ignore_errors=True)
 
         # ── Inpaint each frame ──
         inpaint_base = 0.30 if tracked_masks else 0.05
