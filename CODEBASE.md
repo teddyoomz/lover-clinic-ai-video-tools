@@ -32,7 +32,7 @@ lover-clinic-ai-video-tools/           ← project root
 ├── .smart_state.json                  ← [gitignored] smart.py runtime state
 │
 ├── app/                               ← ALL Python app logic
-│   ├── app.py                         ← ★ MAIN APP — all UI and processing (~3430 lines)
+│   ├── app.py                         ← ★ MAIN APP — all UI and processing (~3650 lines)
 │   ├── smart.py                       ← smart installer/fixer (~805 lines)
 │   ├── requirements.txt               ← Python dependencies
 │   ├── check_deps.py                  ← dependency checker helper
@@ -52,7 +52,7 @@ lover-clinic-ai-video-tools/           ← project root
 
 ---
 
-## 2. app/app.py — Section Map (~3430 lines)
+## 2. app/app.py — Section Map (~3650 lines)
 
 ### Lines 1–16 · Imports
 ```
@@ -134,16 +134,16 @@ platform, pathlib.Path, datetime, PIL.Image, numpy, cv2, io
 
 **crop_image coords_str format:** `"x1,y1,x2,y2|r:90|fh:1|fv:0"`
 
-### Lines 1102–1440 · WATERMARK REMOVER (LaMa + Edge Tracking)
+### Lines 1102–1640 · WATERMARK REMOVER (Smart Auto: SAM2 + Edge + LaMa)
 | Function | Description |
 |----------|-------------|
 | `_load_lama()` | Lazy-load SimpleLama inpainting model |
 | `_editor_to_mask(editor_data)` | Extract BGR image + binary mask from ImageEditor |
 | `_inpaint_lama(image_bgr, mask, lama_model)` | Single-frame LaMa inpainting |
 | `_load_sam2()` | Lazy-load SAM2 VideoPredictor (`facebook/sam2.1-hiera-tiny`), returns None if unavailable |
-| `_propagate_mask_sam2(predictor, mask, video_path, total_frames, progress)` | SAM2 mask propagation across all frames |
-| `_validate_sam2_masks(masks, min_frames, stuck_threshold)` | Centroid analysis — detects if SAM2 is "stuck" tracking background |
-| `_track_watermark_edges(first_frame, mask, video_path, total_frames, progress)` | Edge-based template matching to track watermark across frames |
+| `_propagate_mask_sam2(predictor, mask, video_path, total_frames, progress)` | SAM2 mask propagation → returns `(masks, jpeg_dir)` — JPEG dir kept for edge reuse |
+| `_validate_sam2_masks(masks, original_mask, min_frames, stuck_threshold)` | Dual validation: centroid std (<20px=stuck) + mask size ratio (>3x=background) |
+| `_track_watermark_edges(first_frame, mask, video_path, total_frames, progress, frames_dir)` | Edge-based template matching; `frames_dir` reuses SAM2 JPEGs if available |
 | `_extract_first_frame(video_path)` | Extract frame 1 for ImageEditor preview |
 | `remove_watermark_image(editor_data, output_dir, progress)` | Manual mask + LaMa (image) |
 | `remove_watermark_video(video_path, editor_data, wm_mode, output_dir, progress)` | Video watermark removal (hybrid Smart Auto) |
@@ -153,10 +153,13 @@ platform, pathlib.Path, datetime, PIL.Image, numpy, cv2, io
 - **"เคลื่อนที่ได้ (Smart Auto)"** — Hybrid SAM2 + Edge tracking with auto-selection
 
 **Smart Auto hybrid pipeline:**
-1. **SAM2 first** — Run `SAM2VideoPredictor.from_pretrained("facebook/sam2.1-hiera-tiny")` to propagate masks. Best for opaque logos/objects with pixel-perfect segmentation.
-2. **Validate** — Compute centroid std deviation across all SAM2 masks. If movement < 5px → SAM2 is "stuck" (tracking background instead of the moving watermark).
-3. **Auto-fallback to Edge tracking** — If SAM2 stuck or unavailable, use Canny edge templates + `cv2.matchTemplate(TM_CCOEFF_NORMED)` with `BORDER_CONSTANT` padding. Works for semi-transparent watermarks because edges are background-independent.
-4. **Inpaint** — Per-frame tracked masks → LaMa inpainting → encode with ffmpeg H.264.
+1. **SAM2 first** — Extract all frames as JPEGs → `SAM2VideoPredictor` propagates masks. Best for opaque logos/objects with pixel-perfect segmentation.
+2. **Validate (dual check):**
+   - Centroid std deviation across frames — if < 20px → SAM2 is "stuck" (background noise jitters ~5-10px, real movement >> 20px)
+   - Mask size ratio — if SAM2 median mask > 3x user-drawn mask → tracking large background region, not small watermark
+3. **Auto-fallback to Edge tracking** — Reuses SAM2's extracted JPEGs (no re-decode). Canny edge templates + `cv2.matchTemplate(TM_CCOEFF_NORMED)` with `BORDER_CONSTANT` padding.
+4. **Transition guard** — When edge tracker detects watermark jumped position (distance > 30% of template size), masks BOTH old and new positions on that frame → eliminates 1-frame flash.
+5. **Inpaint** — Per-frame tracked masks → LaMa inpainting → ffmpeg H.264 + audio from original (`-map 1:a?`).
 
 **When each method wins:**
 - **SAM2**: Opaque logos, channel bugs, solid objects that move — pixel-perfect masks
@@ -250,10 +253,11 @@ Video downloader using yt-dlp.
 | `torch` | `torch_reinstall()` | Force GPU torch reinstall (used after fs.link) |
 | `check` | `check()` | Print hardware + health report |
 
-### SAM-2 Install (in `_install_deps`)
-- Installed with `uv pip install SAM-2`
+### SAM2 Install (in `_install_deps`)
+- Installed with `uv pip install sam2` (lowercase package name)
 - Windows: `SAM2_BUILD_CUDA=0` env var to skip CUDA extension compilation
-- Non-critical: if install fails, app still works (video watermark uses fixed mode only)
+- Also in `QUICK_CHECKS` + `_repair_imports()` for auto-heal at startup
+- Non-critical: if install fails, Smart Auto falls back to edge tracking only
 
 ---
 
