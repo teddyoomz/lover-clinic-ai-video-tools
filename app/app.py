@@ -1167,6 +1167,135 @@ def _inpaint_lama(image_bgr, mask, lama_model):
     return result_bgr
 
 
+# ── SAM2 video watermark tracking ─────────────────────────────
+
+_sam2_predictor = None
+
+
+def _load_sam2():
+    """Lazy-load SAM2 VideoPredictor (facebook/sam2.1-hiera-tiny).
+
+    Returns the predictor or None if sam2 is not installed.
+    """
+    global _sam2_predictor
+    if _sam2_predictor is not None:
+        return _sam2_predictor
+    try:
+        import torch
+        from sam2.sam2_video_predictor import SAM2VideoPredictor
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info(f"Loading SAM2 VideoPredictor on {device}…")
+        _sam2_predictor = SAM2VideoPredictor.from_pretrained(
+            "facebook/sam2.1-hiera-tiny", device=device,
+        )
+        logger.info("SAM2 loaded OK")
+        return _sam2_predictor
+    except Exception as e:
+        logger.warning(f"SAM2 unavailable: {e}")
+        return None
+
+
+def _propagate_mask_sam2(predictor, mask, video_path, total_frames, progress):
+    """Use SAM2 VideoPredictor to propagate a mask across all video frames.
+
+    Args:
+        predictor: SAM2VideoPredictor instance
+        mask: (H, W) uint8 binary mask from first frame
+        video_path: path to the video file
+        total_frames: number of frames in the video
+        progress: Gradio progress callback
+
+    Returns:
+        dict {frame_idx: (H, W) uint8 mask} or None on failure.
+    """
+    import torch
+
+    # SAM2 needs JPEG frames in a directory
+    jpeg_dir = tempfile.mkdtemp(prefix="sam2_frames_")
+    try:
+        progress(0.03, desc="SAM2: กำลังแตกเฟรม…")
+        cap = cv2.VideoCapture(video_path)
+        fidx = 0
+        while True:
+            ret, frame = cap.read()
+            if not ret:
+                break
+            cv2.imwrite(os.path.join(jpeg_dir, f"{fidx:06d}.jpg"), frame)
+            fidx += 1
+        cap.release()
+
+        if fidx == 0:
+            return None
+
+        progress(0.08, desc="SAM2: กำลังเริ่ม tracking…")
+        state = predictor.init_state(video_path=jpeg_dir)
+
+        # Add the user-drawn mask as the initial object mask
+        bool_mask = (mask > 0)
+        predictor.add_new_mask(
+            inference_state=state,
+            frame_idx=0,
+            obj_id=1,
+            mask=bool_mask,
+        )
+
+        # Propagate through all frames
+        masks = {}
+        for frame_idx, obj_ids, mask_logits in predictor.propagate_in_video(state):
+            m = (mask_logits[0, 0] > 0.0).cpu().numpy().astype(np.uint8) * 255
+            masks[frame_idx] = m
+            if total_frames > 0 and frame_idx % 10 == 0:
+                pct = 0.08 + 0.17 * (frame_idx / total_frames)
+                progress(pct, desc=f"SAM2 tracking เฟรม {frame_idx + 1}/{total_frames}…")
+
+        predictor.reset_state(state)
+        logger.info(f"SAM2 propagated {len(masks)} frame masks")
+        return masks if masks else None
+
+    except Exception as e:
+        logger.error(f"SAM2 propagation failed: {e}\n{traceback.format_exc()}")
+        return None
+    finally:
+        shutil.rmtree(jpeg_dir, ignore_errors=True)
+
+
+def _validate_sam2_masks(masks, min_frames=10, stuck_threshold=5.0):
+    """Check if SAM2 masks actually track a moving object.
+
+    Computes the centroid of each mask and checks if centroids move across frames.
+    If standard deviation of centroids < stuck_threshold pixels, SAM2 is "stuck"
+    (tracking the background instead of the watermark).
+
+    Returns:
+        True if masks show real movement (SAM2 is useful),
+        False if masks are stuck (should fallback to edge tracking).
+    """
+    centroids = []
+    for fidx in sorted(masks.keys()):
+        m = masks[fidx]
+        ys, xs = np.nonzero(m)
+        if len(xs) > 0:
+            centroids.append((xs.mean(), ys.mean()))
+
+    if len(centroids) < min_frames:
+        # Too few frames with valid masks — unreliable
+        logger.warning(f"SAM2 produced only {len(centroids)} valid masks — unreliable")
+        return False
+
+    cx = np.array([c[0] for c in centroids])
+    cy = np.array([c[1] for c in centroids])
+    movement = max(cx.std(), cy.std())
+
+    logger.info(f"SAM2 centroid std: x={cx.std():.1f} y={cy.std():.1f} → movement={movement:.1f}px")
+
+    if movement < stuck_threshold:
+        logger.info("SAM2 masks stuck (centroid barely moved) — will fallback to edge tracking")
+        return False
+
+    logger.info("SAM2 masks show real movement — using SAM2 results")
+    return True
+
+
 # ── Edge-based watermark tracking across video frames ────────
 
 
@@ -1320,9 +1449,13 @@ def remove_watermark_image(editor_data, output_dir, progress=gr.Progress()):
 def remove_watermark_video(video_path, editor_data, wm_mode, output_dir, progress=gr.Progress()):
     """Remove watermark from video.
 
-    Fixed mode    — same mask every frame (fast, LaMa only).
-    Tracking mode — edge-based template matching tracks watermark position
-                    per-frame, then LaMa inpaints each with the tracked mask.
+    Fixed mode       — same mask every frame (fast, LaMa only).
+    Smart Auto mode  — hybrid SAM2 + edge tracking:
+                       1. Try SAM2 VideoPredictor first (pixel-perfect for opaque logos)
+                       2. Validate centroid movement — if masks are "stuck" SAM2
+                          tracked the background, not the watermark
+                       3. Auto-fallback to edge-based tracking if SAM2 fails
+                          (works for semi-transparent watermarks)
     """
     if video_path is None:
         return None, "⚠️ กรุณาอัปโหลดวีดีโอก่อน"
@@ -1354,15 +1487,43 @@ def remove_watermark_video(video_path, editor_data, wm_mode, output_dir, progres
         if (fh, fw) != (mh, mw):
             mask = cv2.resize(mask, (fw, fh), interpolation=cv2.INTER_NEAREST)
 
-        # ── Edge-based tracking (moving watermark mode) ──
+        # ── Smart Auto tracking (hybrid SAM2 → edge fallback) ──
         tracked_masks = None
+        tracking_method = "Fixed"
+
         if tracking:
-            progress(0.03, desc="กำลังเตรียม edge tracking…")
-            tracked_masks = _track_watermark_edges(
-                first_frame, mask, video_path, total_frames, progress,
-            )
+            # Step 1: Try SAM2 first (best for opaque logos/objects)
+            sam2 = _load_sam2()
+            if sam2 is not None:
+                progress(0.03, desc="SAM2: กำลังวิเคราะห์…")
+                sam2_masks = _propagate_mask_sam2(
+                    sam2, mask, video_path, total_frames, progress,
+                )
+
+                if sam2_masks is not None:
+                    # Step 2: Validate — did SAM2 actually track something moving?
+                    if _validate_sam2_masks(sam2_masks):
+                        tracked_masks = sam2_masks
+                        tracking_method = "SAM2"
+                        logger.info("Smart Auto: using SAM2 masks (object tracked successfully)")
+                    else:
+                        logger.info("Smart Auto: SAM2 stuck → falling back to edge tracking")
+                else:
+                    logger.info("Smart Auto: SAM2 returned no masks → falling back to edge tracking")
+            else:
+                logger.info("Smart Auto: SAM2 not available → using edge tracking")
+
+            # Step 3: Fallback to edge-based tracking if SAM2 didn't work
             if tracked_masks is None:
-                logger.info("Edge tracking returned None — using fixed mask")
+                progress(0.25, desc="Edge tracking: กำลังวิเคราะห์…")
+                tracked_masks = _track_watermark_edges(
+                    first_frame, mask, video_path, total_frames, progress,
+                )
+                if tracked_masks is not None:
+                    tracking_method = "Edge"
+                else:
+                    logger.info("Edge tracking also returned None — using fixed mask")
+                    tracking_method = "Fixed"
 
         # ── Inpaint each frame ──
         inpaint_base = 0.30 if tracked_masks else 0.05
@@ -1429,10 +1590,9 @@ def remove_watermark_video(video_path, editor_data, wm_mode, output_dir, progres
         shutil.rmtree(tmpdir, ignore_errors=True)
 
         progress(1.0, desc="เสร็จสิ้น!")
-        mode_label = "Tracking" if tracked_masks else "Fixed"
         return (
             gr.update(value=final_path, visible=True),
-            f"✅ ลบ Watermark สำเร็จ ({mode_label}) · {frame_idx} เฟรม\n💾 {final_path}",
+            f"✅ ลบ Watermark สำเร็จ ({tracking_method}) · {frame_idx} เฟรม\n💾 {final_path}",
         )
     except Exception as e:
         logger.error(f"remove_watermark_video failed: {e}\n{traceback.format_exc()}")
@@ -3375,9 +3535,10 @@ def build_app():
                                     interactive=True,
                                 )
                                 wm_vid_mode = gr.Radio(
-                                    choices=["อยู่กับที่ (เร็ว)", "เคลื่อนที่ได้ (Tracking)"],
+                                    choices=["อยู่กับที่ (เร็ว)", "เคลื่อนที่ได้ (Smart Auto)"],
                                     value="อยู่กับที่ (เร็ว)",
                                     label="3. ประเภท Watermark",
+                                    info="Smart Auto: SAM2 → ตรวจสอบ → Edge Tracking อัตโนมัติ",
                                 )
                                 with gr.Row():
                                     wm_vid_btn  = gr.Button("🔇 ลบ Watermark", variant="primary", scale=4)

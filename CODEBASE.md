@@ -140,23 +140,27 @@ platform, pathlib.Path, datetime, PIL.Image, numpy, cv2, io
 | `_load_lama()` | Lazy-load SimpleLama inpainting model |
 | `_editor_to_mask(editor_data)` | Extract BGR image + binary mask from ImageEditor |
 | `_inpaint_lama(image_bgr, mask, lama_model)` | Single-frame LaMa inpainting |
+| `_load_sam2()` | Lazy-load SAM2 VideoPredictor (`facebook/sam2.1-hiera-tiny`), returns None if unavailable |
+| `_propagate_mask_sam2(predictor, mask, video_path, total_frames, progress)` | SAM2 mask propagation across all frames |
+| `_validate_sam2_masks(masks, min_frames, stuck_threshold)` | Centroid analysis — detects if SAM2 is "stuck" tracking background |
 | `_track_watermark_edges(first_frame, mask, video_path, total_frames, progress)` | Edge-based template matching to track watermark across frames |
 | `_extract_first_frame(video_path)` | Extract frame 1 for ImageEditor preview |
 | `remove_watermark_image(editor_data, output_dir, progress)` | Manual mask + LaMa (image) |
-| `remove_watermark_video(video_path, editor_data, wm_mode, output_dir, progress)` | Video watermark removal |
+| `remove_watermark_video(video_path, editor_data, wm_mode, output_dir, progress)` | Video watermark removal (hybrid Smart Auto) |
 
 **Video watermark modes:**
 - **"อยู่กับที่ (เร็ว)"** — Fixed: same mask every frame, LaMa per-frame (fast)
-- **"เคลื่อนที่ได้ (Tracking)"** — Edge-based tracking finds watermark position per-frame → LaMa inpaints
+- **"เคลื่อนที่ได้ (Smart Auto)"** — Hybrid SAM2 + Edge tracking with auto-selection
 
-**Edge tracking pipeline:**
-1. Extract Canny edge template from watermark region on frame 1 (background-independent)
-2. For each frame: Canny edges → matchTemplate (TM_CCOEFF_NORMED) with BORDER_CONSTANT padding
-3. Full-frame search (handles scene cuts & position jumps)
-4. Place mask at detected position → LaMa inpaints → encode with ffmpeg H.264
+**Smart Auto hybrid pipeline:**
+1. **SAM2 first** — Run `SAM2VideoPredictor.from_pretrained("facebook/sam2.1-hiera-tiny")` to propagate masks. Best for opaque logos/objects with pixel-perfect segmentation.
+2. **Validate** — Compute centroid std deviation across all SAM2 masks. If movement < 5px → SAM2 is "stuck" (tracking background instead of the moving watermark).
+3. **Auto-fallback to Edge tracking** — If SAM2 stuck or unavailable, use Canny edge templates + `cv2.matchTemplate(TM_CCOEFF_NORMED)` with `BORDER_CONSTANT` padding. Works for semi-transparent watermarks because edges are background-independent.
+4. **Inpaint** — Per-frame tracked masks → LaMa inpainting → encode with ffmpeg H.264.
 
-**Why edge tracking (not SAM2):** SAM2 tracks opaque objects, not semi-transparent watermarks.
-It ends up tracking the background at the initial mask position instead of following the moving logo.
+**When each method wins:**
+- **SAM2**: Opaque logos, channel bugs, solid objects that move — pixel-perfect masks
+- **Edge tracking**: Semi-transparent watermarks, text overlays — SAM2 tracks background instead
 
 ### Lines 1443–1582 · LIGHTBOX_JS
 - Injected via `launch(js=...)` — intercepts Gradio fullscreen button
@@ -295,7 +299,7 @@ resetting        → [Resetting… spinner]
 | `realesrgan` + `basicsr` + `gfpgan` | Photo/video upscale + face enhance |
 | `rembg` + `onnxruntime` | Background removal |
 | `simple-lama-inpainting` | Watermark inpainting (single-frame) |
-| `sam2` (installed by smart.py) | Optional — video object segmentation (not used for watermark tracking) |
+| `sam2` (installed by smart.py) | SAM2 VideoPredictor — used in Smart Auto hybrid for opaque logo tracking |
 | `opencv-python-headless` | Video frame I/O + image processing |
 | `pillow` + `numpy < 2.0.0` | Image I/O and transforms |
 | `transformers >= 4.45.0, < 4.50.0` + `timm` | Florence-2 (legacy, may be removable) |
@@ -317,7 +321,7 @@ resetting        → [Resetting… spinner]
 | `fs.link` overwrites CUDA torch with shared CPU | install.js re-runs `smart.py torch` after |
 | Gradio tab "..." overflow hides tabs | Override `getBoundingClientRect` → width:9999 |
 | sam2 Windows CUDA compilation fails | `SAM2_BUILD_CUDA=0` env var skips it |
-| SAM2 can't track watermarks | Tracks background instead of semi-transparent overlays → use edge-based tracking |
+| SAM2 can't track semi-transparent watermarks | Tracks background instead → Smart Auto auto-detects and falls back to edge tracking |
 | uv/pip may overwrite CUDA torch during dep install | `_install_torch()` called AFTER `_install_deps()` |
 
 ---
