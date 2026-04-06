@@ -1405,14 +1405,28 @@ def _track_watermark_edges(first_frame, mask, video_path, total_frames, progress
             mx = max_loc[0] - pad
             my = max_loc[1] - pad
 
-            if max_val > 0.15:
-                t["last_pos"] = (mx, my)
-            # else: keep last_pos (watermark probably still near previous position)
-
-            # Place mask region at detected position (clip to frame)
-            px, py = t["last_pos"]
+            old_px, old_py = t["last_pos"]
             rgn = t["mask_rgn"]
             rh, rw = rgn.shape[:2]
+
+            if max_val > 0.15:
+                # Transition guard: if watermark jumped, also mask OLD position
+                # on this frame to prevent 1-frame flash during position changes
+                dist = ((mx - old_px)**2 + (my - old_py)**2) ** 0.5
+                if dist > min(tw, th) * 0.3:
+                    # Stamp mask at old position (covers transition)
+                    x1, y1 = max(0, old_px), max(0, old_py)
+                    x2, y2 = min(fw, old_px + rw), min(fh, old_py + rh)
+                    rx1, ry1 = x1 - old_px, y1 - old_py
+                    if x2 > x1 and y2 > y1:
+                        frame_mask[y1:y2, x1:x2] = np.maximum(
+                            frame_mask[y1:y2, x1:x2],
+                            rgn[ry1:ry1 + (y2 - y1), rx1:rx1 + (x2 - x1)],
+                        )
+                t["last_pos"] = (mx, my)
+
+            # Place mask at current position
+            px, py = t["last_pos"]
             x1, y1 = max(0, px), max(0, py)
             x2, y2 = min(fw, px + rw), min(fh, py + rh)
             rx1, ry1 = x1 - px, y1 - py
