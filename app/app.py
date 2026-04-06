@@ -1584,7 +1584,7 @@ def remove_watermark_video(video_path, editor_data, wm_mode, output_dir, progres
             shutil.rmtree(tmpdir, ignore_errors=True)
             return None, "❌ ไม่พบเฟรมในวีดีโอ"
 
-        # ── Encode with ffmpeg ──
+        # ── Encode with ffmpeg (video + audio from original) ──
         progress(0.92, desc="กำลังประกอบวีดีโอ…")
         out_video = os.path.join(tmpdir, "output.mp4")
         try:
@@ -1592,9 +1592,15 @@ def remove_watermark_video(video_path, editor_data, wm_mode, output_dir, progres
             if not ffmpeg_exe:
                 raise RuntimeError("ffmpeg not found")
             subprocess.run([
-                ffmpeg_exe, "-y", "-i", raw_video,
+                ffmpeg_exe, "-y",
+                "-i", raw_video,          # inpainted frames (video)
+                "-i", video_path,          # original file (audio source)
                 "-c:v", "libx264", "-preset", "medium",
                 "-crf", "18", "-pix_fmt", "yuv420p",
+                "-c:a", "aac", "-b:a", "192k",
+                "-map", "0:v:0",           # video from inpainted
+                "-map", "1:a?",            # audio from original (? = skip if none)
+                "-shortest",
                 out_video
             ], check=True, capture_output=True)
         except Exception:
