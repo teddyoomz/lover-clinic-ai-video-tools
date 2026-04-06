@@ -27,6 +27,7 @@ ROOT_DIR   = APP_DIR.parent
 REQ_FILE   = APP_DIR / "requirements.txt"
 HASH_FILE  = ROOT_DIR / ".req_hash"
 STATE_FILE = ROOT_DIR / ".smart_state.json"
+VERSION_FILE = ROOT_DIR / "VERSION"
 LOG_DIR    = APP_DIR / "logs"
 LOG_FILE   = LOG_DIR / "smart.log"
 
@@ -675,9 +676,101 @@ class SmartSetup:
                       capture=True, timeout=15)
         return r.returncode == 0
 
+    # ──────────────────────────────────────────────────────────
+    def _get_version(self):
+        """Read version from VERSION file."""
+        try:
+            return VERSION_FILE.read_text(encoding="utf-8").strip()
+        except Exception:
+            return "unknown"
+
+    def _auto_update(self):
+        """Check GitHub for newer version and auto-pull if available.
+
+        Uses git to compare local HEAD with origin/master.
+        Fast-forward only — never overwrites local changes.
+        Returns True if code was updated.
+        """
+        ver = self._get_version()
+        self.p(c(B, f"🔄 Version {ver} — checking for updates..."))
+
+        # git fetch with 10s timeout (skip silently on no internet)
+        r = self._run(
+            ["git", "fetch", "origin", "master", "--quiet"],
+            cwd=ROOT_DIR, capture=True, timeout=10,
+        )
+        if r is None or r.returncode != 0:
+            self.p(c(DIM, "   ⏭ ไม่สามารถเชื่อมต่อ GitHub ได้ — ข้ามการอัพเดท"))
+            return False
+
+        # Compare local vs remote
+        local = self._run(
+            ["git", "rev-parse", "HEAD"], cwd=ROOT_DIR, capture=True,
+        )
+        remote = self._run(
+            ["git", "rev-parse", "origin/master"], cwd=ROOT_DIR, capture=True,
+        )
+        if not local or not remote:
+            return False
+
+        local_hash = (local.stdout or "").strip()
+        remote_hash = (remote.stdout or "").strip()
+
+        if local_hash == remote_hash:
+            self.p(c(G, f"✅ เวอร์ชันล่าสุดแล้ว (v{ver})"))
+            return False
+
+        # Count commits behind
+        behind = self._run(
+            ["git", "rev-list", "--count", "HEAD..origin/master"],
+            cwd=ROOT_DIR, capture=True,
+        )
+        n = (behind.stdout or "0").strip() if behind else "?"
+        self.p(c(Y, f"⬆️  พบเวอร์ชันใหม่! (อยู่หลัง {n} commits) — กำลังอัพเดท..."))
+
+        # Check for uncommitted changes — skip if dirty
+        status = self._run(
+            ["git", "status", "--porcelain"], cwd=ROOT_DIR, capture=True,
+        )
+        if status and (status.stdout or "").strip():
+            self.p(c(Y, "   ⚠️ พบไฟล์ที่แก้ไขในเครื่อง — ข้ามการอัพเดทอัตโนมัติ"))
+            self.p(c(DIM, "   กด Update จากเมนูเพื่ออัพเดทเอง"))
+            return False
+
+        # Fast-forward pull (safe — never overwrites local changes)
+        pull = self._run(
+            ["git", "pull", "origin", "master", "--ff-only"],
+            cwd=ROOT_DIR, capture=True, timeout=30,
+        )
+        if not pull or pull.returncode != 0:
+            self.p(c(Y, "   ⚠️ Auto-pull failed — ข้ามไปก่อน"))
+            return False
+
+        new_ver = self._get_version()
+        self.p(c(G, f"✅ อัพเดทสำเร็จ! v{ver} → v{new_ver}"))
+
+        # Check if requirements.txt changed in the update
+        diff = self._run(
+            ["git", "diff", "--name-only", f"{local_hash}..HEAD", "--", "app/requirements.txt"],
+            cwd=ROOT_DIR, capture=True,
+        )
+        if diff and "requirements.txt" in (diff.stdout or ""):
+            self.p(c(Y, "📦 requirements.txt เปลี่ยน — ติดตั้ง dependencies ใหม่..."))
+            self._install_deps(force=True)
+
+        self.state["updated_at"] = datetime.now().isoformat()
+        self._save_state()
+        return True
+
     def start(self):
         """Pre-launch health check with auto-heal — minimal, fast output."""
         heal_done = False
+
+        # ── 0. Auto-update from GitHub ────────────────────────
+        try:
+            self._auto_update()
+        except Exception as e:
+            self.p(c(DIM, f"   Auto-update check skipped: {e}"))
 
         # ── 1. Deps hash ──────────────────────────────────────
         if not self._deps_current() or not self._gradio_ok():

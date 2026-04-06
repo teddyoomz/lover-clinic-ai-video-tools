@@ -2292,6 +2292,15 @@ def _get_gpu_badge_html():
         )
 
 
+def _get_app_version():
+    """Read version from VERSION file at project root."""
+    vf = Path(__file__).parent.parent / "VERSION"
+    try:
+        return vf.read_text(encoding="utf-8").strip()
+    except Exception:
+        return "?"
+
+
 def _header_html():
     import base64 as _b64
 
@@ -2358,8 +2367,10 @@ def _header_html():
         '<span style="font-size:0.65rem;font-weight:700;letter-spacing:0.2em;'
         'color:#374151;text-transform:uppercase;">AI Image &amp; Video Processing Suite</span>'
         '</div>'
-        # right: GPU status badge
-        '<div style="flex-shrink:0;">'
+        # right: version + GPU status badge
+        '<div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">'
+        f'<span style="font-size:0.6rem;font-weight:600;color:#4b5563;'
+        f'letter-spacing:0.05em;">v{_get_app_version()}</span>'
         + _get_gpu_badge_html() +
         '</div>'
         '</div></div>'

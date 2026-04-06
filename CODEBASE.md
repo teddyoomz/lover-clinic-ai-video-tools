@@ -12,6 +12,7 @@
 lover-clinic-ai-video-tools/           ← project root
 │
 ├── CODEBASE.md                        ← THIS FILE — read first
+├── VERSION                            ← app version (semver, read by smart.py + app.py)
 ├── CLAUDE.md                          ← Pinokio launcher dev guide (Claude instructions)
 ├── README.md                          ← user documentation
 ├── GRADIO_OVERRIDE_KNOWLEDGE.md       ← Gradio 6 override tricks (tab overflow, etc.)
@@ -220,7 +221,7 @@ Video downloader using yt-dlp.
 
 ---
 
-## 3. app/smart.py — Section Map (~805 lines)
+## 3. app/smart.py — Section Map (~900 lines)
 
 ### Class: SmartSetup
 
@@ -240,7 +241,20 @@ Video downloader using yt-dlp.
 | `_check_ffmpeg()` / `_install_ffmpeg()` | 261–294 | ffmpeg availability check + conda install |
 | `_detect_hardware()` | 297–348 | Detect GPU: nvidia/amd/apple/cpu |
 | `_install_torch(force)` | 351–455 | Install correct torch wheel per GPU + fallback |
-| `_install_deps(force)` | 458–498 | `uv pip install -r requirements.txt` + SAM-2 + torch |
+| `_install_deps(force)` | 458–498 | `uv pip install -r requirements.txt` + sam2 + torch |
+| `_get_version()` | — | Read version from `VERSION` file |
+| `_auto_update()` | — | Check GitHub for newer version → `git pull --ff-only` if behind |
+
+### Auto-Update System
+- **VERSION file** at project root — semver (e.g. `1.5.0`), read by `smart.py` and `app.py`
+- **`_auto_update()`** runs at the start of `start()` (step 0, before health checks):
+  1. `git fetch origin master` (10s timeout — skips silently on no internet)
+  2. Compare `HEAD` vs `origin/master` — if same → "เวอร์ชันล่าสุดแล้ว"
+  3. Check `git status --porcelain` — if dirty → skip (don't overwrite local changes)
+  4. `git pull origin master --ff-only` — safe fast-forward only
+  5. Check if `app/requirements.txt` changed in pulled commits → auto-reinstall deps
+- **Version display** — shown in app.py header bar (top-right, next to GPU badge)
+- Wrapped in try/except — auto-update failure never prevents app from starting
 
 ### Public Modes (entry points)
 
@@ -249,7 +263,7 @@ Video downloader using yt-dlp.
 | `install` | `install()` | Full install: deps + torch |
 | `update` | `update()` | Git pull → smart dep update |
 | `fix` | `fix()` | Deep health check: deps hash, pydantic pin, torch, imports, torch guard |
-| `start` | `start()` | Pre-launch: dep hash check, torch smoke test, quick import check, auto-heal |
+| `start` | `start()` | **Auto-update** → dep hash check → torch smoke test → quick import check → auto-heal |
 | `torch` | `torch_reinstall()` | Force GPU torch reinstall (used after fs.link) |
 | `check` | `check()` | Print hardware + health report |
 
