@@ -1100,81 +1100,60 @@ def convert_format(image, out_format, quality, output_dir):
 
 
 # ============================================================
-# WATERMARK REMOVER — Florence-2 detection + LaMa inpainting
+# WATERMARK REMOVER — Manual mask drawing + LaMa inpainting
 # ============================================================
 
-_wm_florence_model = None
-_wm_florence_processor = None
 _wm_lama_manager = None
 
 
-def _load_wm_models(device=None):
-    """Lazy-load Florence-2 and LaMa models. Returns (model, processor, lama_mgr, device_str)."""
-    global _wm_florence_model, _wm_florence_processor, _wm_lama_manager
-    import torch as _torch
-
-    if device is None:
-        device = "cuda" if _torch.cuda.is_available() else "cpu"
-
-    if _wm_florence_model is None:
-        logger.info("Loading Florence-2 model for watermark detection…")
-        from transformers import AutoProcessor, AutoModelForCausalLM
-        model_id = "microsoft/Florence-2-base"
-        dtype = _torch.float16 if device == "cuda" else _torch.float32
-        _wm_florence_processor = AutoProcessor.from_pretrained(model_id, trust_remote_code=True)
-        _wm_florence_model = AutoModelForCausalLM.from_pretrained(
-            model_id, torch_dtype=dtype, trust_remote_code=True
-        ).to(device).eval()
-        logger.info("Florence-2 loaded OK")
-
+def _load_lama():
+    """Lazy-load LaMa inpainting model."""
+    global _wm_lama_manager
     if _wm_lama_manager is None:
         logger.info("Loading LaMa inpainting model…")
         from simple_lama_inpainting import SimpleLama
         _wm_lama_manager = SimpleLama()
         logger.info("LaMa loaded OK")
+    return _wm_lama_manager
 
-    return _wm_florence_model, _wm_florence_processor, _wm_lama_manager, device
 
+def _editor_to_mask(editor_data):
+    """Extract background (BGR) and binary mask from ImageEditor brush strokes."""
+    if editor_data is None:
+        return None, None
 
-def _detect_watermarks(image_bgr, model, processor, device, max_bbox_percent=10.0, prompt="watermark"):
-    """Detect watermark bounding boxes using Florence-2. Returns list of (x1,y1,x2,y2) and a mask (numpy H×W uint8)."""
-    from PIL import Image as _PILImage
+    bg = editor_data.get("background")
+    layers = editor_data.get("layers", [])
 
-    h, w = image_bgr.shape[:2]
-    image_rgb = cv2.cvtColor(image_bgr, cv2.COLOR_BGR2RGB)
-    pil_img = _PILImage.fromarray(image_rgb)
+    if bg is None:
+        return None, None
 
-    task = "<OD>"
-    text_input = prompt
-    inputs = processor(text=task + text_input, images=pil_img, return_tensors="pt")
-    inputs = {k: v.to(device) for k, v in inputs.items()}
+    bg_arr = np.array(bg) if not isinstance(bg, np.ndarray) else bg
+    if bg_arr.ndim == 2:
+        bg_bgr = cv2.cvtColor(bg_arr, cv2.COLOR_GRAY2BGR)
+    elif bg_arr.shape[2] == 4:
+        bg_bgr = cv2.cvtColor(bg_arr, cv2.COLOR_RGBA2BGR)
+    else:
+        bg_bgr = cv2.cvtColor(bg_arr, cv2.COLOR_RGB2BGR)
 
-    import torch as _torch
-    with _torch.no_grad():
-        generated = model.generate(
-            input_ids=inputs["input_ids"],
-            pixel_values=inputs["pixel_values"],
-            max_new_tokens=1024,
-            num_beams=3,
-        )
-    result_text = processor.batch_decode(generated, skip_special_tokens=False)[0]
-    parsed = processor.post_process_generation(result_text, task=task, image_size=(w, h))
-
-    bboxes = []
-    if task in parsed and "bboxes" in parsed[task]:
-        for bbox in parsed[task]["bboxes"]:
-            x1, y1, x2, y2 = [int(v) for v in bbox]
-            bw, bh = x2 - x1, y2 - y1
-            area_pct = (bw * bh) / (w * h) * 100
-            if area_pct <= max_bbox_percent and bw > 5 and bh > 5:
-                bboxes.append((x1, y1, x2, y2))
-
+    h, w = bg_bgr.shape[:2]
     mask = np.zeros((h, w), dtype=np.uint8)
-    for (x1, y1, x2, y2) in bboxes:
-        pad = max(3, int(min(x2 - x1, y2 - y1) * 0.15))
-        mask[max(0, y1 - pad):min(h, y2 + pad), max(0, x1 - pad):min(w, x2 + pad)] = 255
 
-    return bboxes, mask
+    for layer in layers:
+        if layer is None:
+            continue
+        la = np.array(layer) if not isinstance(layer, np.ndarray) else layer
+        if la.ndim == 3 and la.shape[2] == 4:
+            mask[la[:, :, 3] > 10] = 255
+        elif la.ndim == 3:
+            mask[np.any(la > 10, axis=2)] = 255
+
+    # Dilate mask for better edge blending
+    if np.any(mask > 0):
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        mask = cv2.dilate(mask, kernel, iterations=2)
+
+    return bg_bgr, mask
 
 
 def _inpaint_lama(image_bgr, mask, lama_model):
@@ -1188,32 +1167,141 @@ def _inpaint_lama(image_bgr, mask, lama_model):
     return result_bgr
 
 
-def remove_watermark_image(image, wm_prompt, wm_max_bbox, output_dir, progress=gr.Progress()):
-    """Remove watermark from a single image."""
-    if image is None:
+# ── Edge-based watermark tracking across video frames ────────
+
+
+def _track_watermark_edges(first_frame, mask, video_path, total_frames, progress):
+    """Track watermark position across frames using edge-based template matching.
+
+    Strategy:
+    - Extract Canny edge template from each watermark region (background-independent)
+    - Pad each frame with constant borders so edge/corner watermarks can be found
+    - Full-frame search every frame (handles scene cuts & jumps)
+    - Edge matching focuses on the watermark's SHAPE, not its pixel values,
+      so it works even when the watermark is semi-transparent
+
+    Returns dict {frame_idx: (H, W) uint8 mask}
+    """
+    fh, fw = first_frame.shape[:2]
+    first_gray = cv2.cvtColor(first_frame, cv2.COLOR_BGR2GRAY)
+
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    trackers = []
+
+    for cnt in contours:
+        x, y, w, h = cv2.boundingRect(cnt)
+        if w < 10 or h < 10:
+            continue
+
+        roi = first_gray[y:y + h, x:x + w]
+        edge_tpl = cv2.Canny(roi, 30, 100)
+
+        # Skip if the edge template is too empty (< 1% edge pixels)
+        if np.count_nonzero(edge_tpl) < 0.01 * edge_tpl.size:
+            logger.warning(f"Watermark region ({w}x{h}) has too few edges — using fixed position")
+            continue
+
+        trackers.append({
+            "edge_tpl": edge_tpl,
+            "mask_rgn": mask[y:y + h, x:x + w].copy(),
+            "last_pos": (x, y),
+            "size": (w, h),
+        })
+
+    if not trackers:
+        logger.warning("No trackable watermark regions — using fixed mask for all frames")
+        return None
+
+    logger.info(f"Edge tracking {len(trackers)} watermark regions across {total_frames} frames")
+
+    cap = cv2.VideoCapture(video_path)
+    masks = {}
+
+    for fidx in range(total_frames):
+        ret, frame = cap.read()
+        if not ret:
+            break
+
+        frame_gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+        frame_edges = cv2.Canny(frame_gray, 30, 100)
+        frame_mask = np.zeros((fh, fw), dtype=np.uint8)
+
+        for t in trackers:
+            tw, th = t["size"]
+            pad = max(tw, th)
+
+            # Pad with zeros — prevents false matches from reflected content
+            padded = cv2.copyMakeBorder(
+                frame_edges, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=0
+            )
+
+            result = cv2.matchTemplate(padded, t["edge_tpl"], cv2.TM_CCOEFF_NORMED)
+            _, max_val, _, max_loc = cv2.minMaxLoc(result)
+
+            # Adjust for padding offset
+            mx = max_loc[0] - pad
+            my = max_loc[1] - pad
+
+            if max_val > 0.15:
+                t["last_pos"] = (mx, my)
+            # else: keep last_pos (watermark probably still near previous position)
+
+            # Place mask region at detected position (clip to frame)
+            px, py = t["last_pos"]
+            rgn = t["mask_rgn"]
+            rh, rw = rgn.shape[:2]
+            x1, y1 = max(0, px), max(0, py)
+            x2, y2 = min(fw, px + rw), min(fh, py + rh)
+            rx1, ry1 = x1 - px, y1 - py
+            if x2 > x1 and y2 > y1:
+                frame_mask[y1:y2, x1:x2] = np.maximum(
+                    frame_mask[y1:y2, x1:x2],
+                    rgn[ry1:ry1 + (y2 - y1), rx1:rx1 + (x2 - x1)],
+                )
+
+        masks[fidx] = frame_mask
+        if total_frames > 0 and fidx % 10 == 0:
+            pct = 0.05 + 0.25 * (fidx / total_frames)
+            progress(pct, desc=f"ติดตาม Watermark เฟรม {fidx + 1}/{total_frames}…")
+
+    cap.release()
+    logger.info(f"Edge tracking complete — {len(masks)} frames")
+    return masks
+
+
+def _extract_first_frame(video_path):
+    """Extract first frame from video for the ImageEditor."""
+    if video_path is None:
+        return gr.update(value=None)
+    cap = cv2.VideoCapture(video_path)
+    ret, frame = cap.read()
+    cap.release()
+    if not ret:
+        return gr.update(value=None)
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    return gr.update(value=rgb)
+
+
+def remove_watermark_image(editor_data, output_dir, progress=gr.Progress()):
+    """Remove watermark from image using manually drawn mask + LaMa inpainting."""
+    if editor_data is None:
         return None, None, "⚠️ กรุณาอัปโหลดภาพก่อน"
+
+    bg_bgr, mask = _editor_to_mask(editor_data)
+    if bg_bgr is None:
+        return None, None, "⚠️ กรุณาอัปโหลดภาพก่อน"
+    if not np.any(mask > 0):
+        return None, None, "⚠️ กรุณาใช้แปรงวาดทับบริเวณ Watermark/Logo ที่ต้องการลบ"
+
+    if not output_dir or not output_dir.strip():
+        output_dir = str(Path.home() / "Pictures" / "AI_Watermark_Removed")
+
     try:
-        progress(0.1, desc="กำลังโหลดโมเดล AI…")
-        model, processor, lama_mgr, device = _load_wm_models()
+        progress(0.1, desc="กำลังโหลดโมเดล LaMa…")
+        lama = _load_lama()
 
-        img_array = np.array(image)
-        if img_array.ndim == 2:
-            img_array = cv2.cvtColor(img_array, cv2.COLOR_GRAY2BGR)
-        elif img_array.shape[2] == 4:
-            img_array = cv2.cvtColor(img_array, cv2.COLOR_RGBA2BGR)
-        else:
-            img_array = cv2.cvtColor(img_array, cv2.COLOR_RGB2BGR)
-
-        progress(0.3, desc="กำลังตรวจจับ Watermark…")
-        bboxes, mask = _detect_watermarks(img_array, model, processor, device,
-                                          max_bbox_percent=float(wm_max_bbox),
-                                          prompt=wm_prompt or "watermark")
-
-        if not bboxes:
-            return image, None, "ℹ️ ไม่พบ Watermark ในภาพนี้"
-
-        progress(0.6, desc=f"พบ {len(bboxes)} จุด — กำลังลบ Watermark…")
-        result_bgr = _inpaint_lama(img_array, mask, lama_mgr)
+        progress(0.4, desc="กำลังลบ Watermark…")
+        result_bgr = _inpaint_lama(bg_bgr, mask, lama)
 
         result_rgb = cv2.cvtColor(result_bgr, cv2.COLOR_BGR2RGB)
         result_pil = Image.fromarray(result_rgb)
@@ -1223,19 +1311,34 @@ def remove_watermark_image(image, wm_prompt, wm_max_bbox, output_dir, progress=g
         saved = _save_image(result_pil, output_dir, "wm_removed", "PNG")
 
         progress(1.0, desc="เสร็จสิ้น!")
-        return result_pil, saved, f"✅ ลบ Watermark สำเร็จ — พบ {len(bboxes)} จุด\n💾 {saved}"
+        return result_pil, saved, f"✅ ลบ Watermark สำเร็จ\n💾 {saved}"
     except Exception as e:
         logger.error(f"remove_watermark_image failed: {e}\n{traceback.format_exc()}")
         return None, None, f"❌ เกิดข้อผิดพลาด: {e}"
 
 
-def remove_watermark_video(video_path, wm_prompt, wm_max_bbox, output_dir, progress=gr.Progress()):
-    """Remove watermark from video, frame by frame."""
+def remove_watermark_video(video_path, editor_data, wm_mode, output_dir, progress=gr.Progress()):
+    """Remove watermark from video.
+
+    Fixed mode    — same mask every frame (fast, LaMa only).
+    Tracking mode — edge-based template matching tracks watermark position
+                    per-frame, then LaMa inpaints each with the tracked mask.
+    """
     if video_path is None:
         return None, "⚠️ กรุณาอัปโหลดวีดีโอก่อน"
+
+    _, mask = _editor_to_mask(editor_data)
+    if mask is None or not np.any(mask > 0):
+        return None, "⚠️ กรุณาใช้แปรงวาดทับบริเวณ Watermark/Logo บนเฟรมตัวอย่างก่อน"
+
+    if not output_dir or not output_dir.strip():
+        output_dir = str(Path(video_path).parent)
+
+    tracking = "เคลื่อนที่" in (wm_mode or "")
+
     try:
-        progress(0.05, desc="กำลังโหลดโมเดล AI…")
-        model, processor, lama_mgr, device = _load_wm_models()
+        progress(0.02, desc="กำลังโหลดโมเดล LaMa…")
+        lama = _load_lama()
 
         cap = cv2.VideoCapture(video_path)
         fps = cap.get(cv2.CAP_PROP_FPS) or 24.0
@@ -1246,55 +1349,65 @@ def remove_watermark_video(video_path, wm_prompt, wm_max_bbox, output_dir, progr
             cap.release()
             return None, "❌ ไม่สามารถอ่านวีดีโอได้"
 
-        progress(0.1, desc="กำลังตรวจจับ Watermark จากเฟรมแรก…")
-        bboxes, ref_mask = _detect_watermarks(first_frame, model, processor, device,
-                                               max_bbox_percent=float(wm_max_bbox),
-                                               prompt=wm_prompt or "watermark")
-        if not bboxes:
-            cap.release()
-            return None, "ℹ️ ไม่พบ Watermark ในวีดีโอนี้"
+        fh, fw = first_frame.shape[:2]
+        mh, mw = mask.shape[:2]
+        if (fh, fw) != (mh, mw):
+            mask = cv2.resize(mask, (fw, fh), interpolation=cv2.INTER_NEAREST)
 
-        logger.info(f"Watermark detected: {len(bboxes)} regions — processing {total_frames} frames")
+        # ── Edge-based tracking (moving watermark mode) ──
+        tracked_masks = None
+        if tracking:
+            progress(0.03, desc="กำลังเตรียม edge tracking…")
+            tracked_masks = _track_watermark_edges(
+                first_frame, mask, video_path, total_frames, progress,
+            )
+            if tracked_masks is None:
+                logger.info("Edge tracking returned None — using fixed mask")
 
-        tmpdir = tempfile.mkdtemp()
-        out_dir_tmp = os.path.join(tmpdir, "out")
-        os.makedirs(out_dir_tmp)
-
+        # ── Inpaint each frame ──
+        inpaint_base = 0.30 if tracked_masks else 0.05
+        progress(inpaint_base, desc="กำลังเริ่มลบ Watermark…")
         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-        frame_idx = 0
-        out_paths = []
 
+        tmpdir = tempfile.mkdtemp(prefix="wm_out_")
+        raw_video = os.path.join(tmpdir, "raw.mp4")
+        writer = cv2.VideoWriter(raw_video, cv2.VideoWriter_fourcc(*"mp4v"), fps, (fw, fh))
+
+        frame_idx = 0
         while True:
             ret, frame = cap.read()
             if not ret:
                 break
 
-            result = _inpaint_lama(frame, ref_mask, lama_mgr)
-            op = os.path.join(out_dir_tmp, f"frame_{frame_idx:08d}.png")
-            cv2.imwrite(op, result)
-            out_paths.append(op)
-            frame_idx += 1
+            # Pick per-frame tracked mask or the fixed drawn mask
+            if tracked_masks is not None and frame_idx in tracked_masks:
+                frame_mask = tracked_masks[frame_idx]
+            else:
+                frame_mask = mask
 
+            # Dilate for better edge blending
+            if np.any(frame_mask > 0):
+                kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+                frame_mask = cv2.dilate(frame_mask, kernel, iterations=2)
+                result = _inpaint_lama(frame, frame_mask, lama)
+            else:
+                result = frame
+
+            writer.write(result)
+            frame_idx += 1
             if total_frames > 0:
-                pct = 0.15 + 0.7 * (frame_idx / total_frames)
+                pct = inpaint_base + (0.90 - inpaint_base) * (frame_idx / total_frames)
                 progress(pct, desc=f"ลบ Watermark เฟรม {frame_idx}/{total_frames}…")
 
         cap.release()
+        writer.release()
 
-        if not out_paths:
+        if frame_idx == 0:
             shutil.rmtree(tmpdir, ignore_errors=True)
             return None, "❌ ไม่พบเฟรมในวีดีโอ"
 
-        progress(0.9, desc="กำลังประกอบวีดีโอ…")
-        sample = cv2.imread(out_paths[0])
-        h, w = sample.shape[:2]
-
-        raw_video = os.path.join(tmpdir, "raw.mp4")
-        writer = cv2.VideoWriter(raw_video, cv2.VideoWriter_fourcc(*"mp4v"), fps, (w, h))
-        for op in out_paths:
-            writer.write(cv2.imread(op))
-        writer.release()
-
+        # ── Encode with ffmpeg ──
+        progress(0.92, desc="กำลังประกอบวีดีโอ…")
         out_video = os.path.join(tmpdir, "output.mp4")
         try:
             ffmpeg_exe = shutil.which("ffmpeg")
@@ -1316,7 +1429,11 @@ def remove_watermark_video(video_path, wm_prompt, wm_max_bbox, output_dir, progr
         shutil.rmtree(tmpdir, ignore_errors=True)
 
         progress(1.0, desc="เสร็จสิ้น!")
-        return gr.update(value=final_path, visible=True), f"✅ ลบ Watermark สำเร็จ — {len(bboxes)} จุด · {frame_idx} เฟรม\n💾 {final_path}"
+        mode_label = "Tracking" if tracked_masks else "Fixed"
+        return (
+            gr.update(value=final_path, visible=True),
+            f"✅ ลบ Watermark สำเร็จ ({mode_label}) · {frame_idx} เฟรม\n💾 {final_path}",
+        )
     except Exception as e:
         logger.error(f"remove_watermark_video failed: {e}\n{traceback.format_exc()}")
         return None, f"❌ เกิดข้อผิดพลาด: {e}"
@@ -3210,53 +3327,58 @@ def build_app():
 
             # ── AI: Watermark Remover ─────────────────────
             with gr.Tab("🔇 AI ลบ Watermark"):
-                gr.HTML('<div class="sec-head">AI ลบ Watermark · Florence-2 + LaMa</div>')
+                gr.HTML('<div class="sec-head">AI ลบ Watermark/Logo · วาดทับจุดที่ต้องการลบ</div>')
                 with gr.Tabs():
                     with gr.Tab("🖼️ ลบจากภาพ"):
                         with gr.Row():
                             with gr.Column(scale=1):
-                                wm_img_in = gr.Image(label="ภาพต้นฉบับ", type="pil", height=340)
-                                with gr.Row():
-                                    wm_prompt = gr.Textbox(
-                                        value=cfg["wm_prompt"], label="คำค้นหา Watermark",
-                                        placeholder="watermark, logo, text…", scale=3,
-                                    )
-                                    wm_max_bbox = gr.Slider(
-                                        1, 50, value=cfg["wm_max_bbox"], step=0.5,
-                                        label="ขนาดสูงสุด (%)", scale=2,
-                                    )
+                                wm_img_editor = gr.ImageEditor(
+                                    label="อัปโหลดภาพ แล้วใช้แปรงวาดทับ Watermark/Logo",
+                                    type="numpy",
+                                    brush=gr.Brush(colors=["#ff0000"], default_size=30, color_mode="fixed"),
+                                    eraser=gr.Eraser(default_size=30),
+                                    sources=["upload", "clipboard"],
+                                    transforms=[],
+                                    layers=False,
+                                    height=400,
+                                )
                                 with gr.Row():
                                     wm_img_btn  = gr.Button("🔇 ลบ Watermark", variant="primary", scale=4)
                                     wm_img_stop = gr.Button("⏹ หยุด", variant="stop", scale=1, min_width=90)
                             with gr.Column(scale=1):
-                                wm_img_out = gr.Image(label="ผลลัพธ์", height=340, interactive=False)
+                                wm_img_out = gr.Image(label="ผลลัพธ์", height=400, interactive=False)
                                 wm_img_file = gr.File(label="⬇️ ดาวน์โหลดไฟล์")
                                 wm_img_status = gr.Markdown(value="", elem_classes=["lc-status"])
                         wm_img_dir, _ = _save_dir_row("watermark")
                         wm_img_dir.value = cfg["wm_out_dir"]
                         wm_img_event = wm_img_btn.click(
                             remove_watermark_image,
-                            inputs=[wm_img_in, wm_prompt, wm_max_bbox, wm_img_dir],
+                            inputs=[wm_img_editor, wm_img_dir],
                             outputs=[wm_img_out, wm_img_file, wm_img_status],
                         )
                         wm_img_stop.click(fn=None, cancels=[wm_img_event])
-                        wm_prompt.change(_make_saver("wm_prompt"), inputs=[wm_prompt])
-                        wm_max_bbox.change(_make_saver("wm_max_bbox"), inputs=[wm_max_bbox])
                         wm_img_dir.change(_make_saver("wm_out_dir"), inputs=[wm_img_dir])
 
                     with gr.Tab("🎬 ลบจากวีดีโอ"):
                         with gr.Row():
                             with gr.Column(scale=1):
-                                wm_vid_in = gr.Video(label="วีดีโอต้นฉบับ")
-                                with gr.Row():
-                                    wm_vid_prompt = gr.Textbox(
-                                        value=cfg["wm_prompt"], label="คำค้นหา Watermark",
-                                        placeholder="watermark, logo, text…", scale=3,
-                                    )
-                                    wm_vid_bbox = gr.Slider(
-                                        1, 50, value=cfg["wm_max_bbox"], step=0.5,
-                                        label="ขนาดสูงสุด (%)", scale=2,
-                                    )
+                                wm_vid_in = gr.Video(label="1. อัปโหลดวีดีโอ")
+                                wm_vid_editor = gr.ImageEditor(
+                                    label="2. ใช้แปรงวาดทับ Watermark/Logo บนเฟรมตัวอย่าง",
+                                    type="numpy",
+                                    brush=gr.Brush(colors=["#ff0000"], default_size=30, color_mode="fixed"),
+                                    eraser=gr.Eraser(default_size=30),
+                                    sources=[],
+                                    transforms=[],
+                                    layers=False,
+                                    height=350,
+                                    interactive=True,
+                                )
+                                wm_vid_mode = gr.Radio(
+                                    choices=["อยู่กับที่ (เร็ว)", "เคลื่อนที่ได้ (Tracking)"],
+                                    value="อยู่กับที่ (เร็ว)",
+                                    label="3. ประเภท Watermark",
+                                )
                                 with gr.Row():
                                     wm_vid_btn  = gr.Button("🔇 ลบ Watermark", variant="primary", scale=4)
                                     wm_vid_stop = gr.Button("⏹ หยุด", variant="stop", scale=1, min_width=90)
@@ -3265,14 +3387,17 @@ def build_app():
                                 wm_vid_status = gr.Markdown(value="", elem_classes=["lc-status"])
                         wm_vid_dir, _ = _save_dir_row("watermark")
                         wm_vid_dir.value = cfg["wm_out_dir"]
+                        wm_vid_in.change(
+                            _extract_first_frame,
+                            inputs=[wm_vid_in],
+                            outputs=[wm_vid_editor],
+                        )
                         wm_vid_event = wm_vid_btn.click(
                             remove_watermark_video,
-                            inputs=[wm_vid_in, wm_vid_prompt, wm_vid_bbox, wm_vid_dir],
+                            inputs=[wm_vid_in, wm_vid_editor, wm_vid_mode, wm_vid_dir],
                             outputs=[wm_vid_out, wm_vid_status],
                         )
                         wm_vid_stop.click(fn=None, cancels=[wm_vid_event])
-                        wm_vid_prompt.change(_make_saver("wm_prompt"), inputs=[wm_vid_prompt])
-                        wm_vid_bbox.change(_make_saver("wm_max_bbox"), inputs=[wm_vid_bbox])
                         wm_vid_dir.change(_make_saver("wm_out_dir"), inputs=[wm_vid_dir])
 
             # ── Download Video ─────────────────────────────

@@ -15,4 +15,5 @@ requests
 yt-dlp
 imageio-ffmpeg
 transformers>=4.45.0,<4.50.0
+timm
 simple-lama-inpainting

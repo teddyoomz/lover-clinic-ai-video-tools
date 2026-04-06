@@ -100,11 +100,12 @@ class SmartSetup:
         self._log(msg)
 
     # ── Shell helpers ─────────────────────────────────────────
-    def _run(self, cmd, cwd=None, capture=False, timeout=None):
+    def _run(self, cmd, cwd=None, capture=False, timeout=None, env=None):
         return subprocess.run(
             cmd, cwd=cwd or APP_DIR,
             capture_output=capture, text=capture,
             timeout=timeout,
+            env=env,
         )
 
     # ── Torch test (subprocess — safe from DLL crashes) ───────
@@ -159,6 +160,9 @@ class SmartSetup:
         "gfpgan":    "from gfpgan import GFPGANer",
         "rembg":     "from rembg import remove",
         "yt_dlp":    "import yt_dlp",
+        "timm":      "import timm",
+        "transformers": "from transformers import AutoProcessor",
+        "sam2":      "from sam2.sam2_video_predictor import SAM2VideoPredictor",
     }
 
     def _check_imports(self):
@@ -240,6 +244,29 @@ class SmartSetup:
                        "--reinstall-package", "gradio"])
             self._run(["uv", "pip", "install", "pydantic==2.10.6", "--force-reinstall"])
             repaired.add("gradio")
+
+        if "timm" in failed:
+            self.p(c(Y, "  🔧 Installing timm ..."))
+            self._run(["uv", "pip", "install", "timm",
+                       "--reinstall-package", "timm"])
+            repaired.add("timm")
+
+        if "transformers" in failed:
+            self.p(c(Y, "  🔧 Installing transformers ..."))
+            self._run(["uv", "pip", "install", "transformers>=4.45.0,<4.50.0",
+                       "--reinstall-package", "transformers"])
+            repaired.add("transformers")
+
+        if "sam2" in failed:
+            self.p(c(Y, "  🔧 Installing sam2 (video watermark tracking) ..."))
+            sam2_env = dict(os.environ)
+            if platform.system() == "Windows":
+                sam2_env["SAM2_BUILD_CUDA"] = "0"
+            r = self._run(["uv", "pip", "install", "sam2"], env=sam2_env)
+            if r.returncode == 0:
+                repaired.add("sam2")
+            else:
+                self.p(c(Y, "  ⚠️  sam2 install failed — video tracking will use fixed mode"))
 
         return repaired
 
@@ -459,6 +486,18 @@ class SmartSetup:
         if hw["gpu_type"] == "nvidia":
             self.p(c(Y, "  🎮 NVIDIA detected — installing onnxruntime-gpu (replaces CPU onnxruntime)..."))
             self._run(["uv", "pip", "install", "onnxruntime-gpu", "--force-reinstall"])
+
+        # Install sam2 for video watermark tracking
+        # Windows needs SAM2_BUILD_CUDA=0 to skip CUDA extension compilation
+        self.p(c(B, "  📦 Installing sam2 (video watermark tracking)..."))
+        sam2_env = dict(os.environ)
+        if platform.system() == "Windows":
+            sam2_env["SAM2_BUILD_CUDA"] = "0"
+        r_sam2 = self._run(["uv", "pip", "install", "sam2"], env=sam2_env)
+        if r_sam2.returncode == 0:
+            self.p(c(G, "  ✅ sam2 installed"))
+        else:
+            self.p(c(Y, "  ⚠️  sam2 install failed (video watermark tracking will use fixed mode only)"))
 
         # requirements.txt installs basicsr/realesrgan/devicetorch which may pull
         # in a plain PyPI torch.  Always call _install_torch() after deps so the
@@ -686,6 +725,9 @@ class SmartSetup:
             "basicsr":    "from basicsr.archs.rrdbnet_arch import RRDBNet",
             "realesrgan": "from realesrgan import RealESRGANer",
             "realesrgan.srvgg": "from realesrgan.archs.srvgg_arch import SRVGGNetCompact",
+            "timm":       "import timm",
+            "transformers": "from transformers import AutoProcessor",
+            "sam2":       "from sam2.sam2_video_predictor import SAM2VideoPredictor",
         }
         # Temporarily override _CRITICAL_IMPORTS for quick scan
         _orig = self._CRITICAL_IMPORTS
