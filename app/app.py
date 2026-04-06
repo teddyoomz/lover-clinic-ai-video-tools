@@ -1259,29 +1259,37 @@ def _propagate_mask_sam2(predictor, mask, video_path, total_frames, progress):
         shutil.rmtree(jpeg_dir, ignore_errors=True)
 
 
-def _validate_sam2_masks(masks, min_frames=10, stuck_threshold=5.0):
+def _validate_sam2_masks(masks, original_mask, min_frames=10, stuck_threshold=20.0):
     """Check if SAM2 masks actually track a moving object.
 
-    Computes the centroid of each mask and checks if centroids move across frames.
-    If standard deviation of centroids < stuck_threshold pixels, SAM2 is "stuck"
-    (tracking the background instead of the watermark).
+    Two validation checks:
+    1. Centroid movement — std deviation of centroids across frames.
+       If < stuck_threshold pixels, SAM2 is "stuck" tracking background.
+       (Threshold=20px: background noise can produce ~5-10px jitter)
+    2. Mask size consistency — if SAM2 masks are >3x larger than the
+       user-drawn mask, SAM2 is segmenting a large background region
+       instead of the small watermark.
 
     Returns:
-        True if masks show real movement (SAM2 is useful),
-        False if masks are stuck (should fallback to edge tracking).
+        True if masks show real movement AND reasonable size (SAM2 is useful),
+        False if masks are stuck or oversized (should fallback to edge tracking).
     """
+    original_area = np.count_nonzero(original_mask)
+
     centroids = []
+    areas = []
     for fidx in sorted(masks.keys()):
         m = masks[fidx]
         ys, xs = np.nonzero(m)
         if len(xs) > 0:
             centroids.append((xs.mean(), ys.mean()))
+            areas.append(len(xs))
 
     if len(centroids) < min_frames:
-        # Too few frames with valid masks — unreliable
         logger.warning(f"SAM2 produced only {len(centroids)} valid masks — unreliable")
         return False
 
+    # Check 1: Centroid movement
     cx = np.array([c[0] for c in centroids])
     cy = np.array([c[1] for c in centroids])
     movement = max(cx.std(), cy.std())
@@ -1289,10 +1297,19 @@ def _validate_sam2_masks(masks, min_frames=10, stuck_threshold=5.0):
     logger.info(f"SAM2 centroid std: x={cx.std():.1f} y={cy.std():.1f} → movement={movement:.1f}px")
 
     if movement < stuck_threshold:
-        logger.info("SAM2 masks stuck (centroid barely moved) — will fallback to edge tracking")
+        logger.info(f"SAM2 masks stuck (movement {movement:.1f}px < {stuck_threshold}px threshold) — will fallback")
         return False
 
-    logger.info("SAM2 masks show real movement — using SAM2 results")
+    # Check 2: Mask size vs original (SAM2 tracking background = much larger masks)
+    if original_area > 0:
+        median_area = float(np.median(areas))
+        size_ratio = median_area / original_area
+        logger.info(f"SAM2 mask size ratio: {size_ratio:.1f}x (median {median_area:.0f} vs original {original_area})")
+        if size_ratio > 3.0:
+            logger.info("SAM2 masks are >3x larger than user mask — likely tracking background")
+            return False
+
+    logger.info("SAM2 masks validated: real movement + reasonable size — using SAM2")
     return True
 
 
@@ -1502,7 +1519,7 @@ def remove_watermark_video(video_path, editor_data, wm_mode, output_dir, progres
 
                 if sam2_masks is not None:
                     # Step 2: Validate — did SAM2 actually track something moving?
-                    if _validate_sam2_masks(sam2_masks):
+                    if _validate_sam2_masks(sam2_masks, mask):
                         tracked_masks = sam2_masks
                         tracking_method = "SAM2"
                         logger.info("Smart Auto: using SAM2 masks (object tracked successfully)")
