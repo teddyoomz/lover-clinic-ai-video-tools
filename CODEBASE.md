@@ -188,14 +188,14 @@ platform, pathlib.Path, datetime, PIL.Image, numpy, cv2, io
 Large JS string with crop tool logic — see "Crop Tool" section in original CODEBASE.md for details.
 
 ### Lines 2737–3093 · _build_download_tab(cfg)
-Video downloader using yt-dlp.
+Video downloader using yt-dlp (auto-updated on every Start).
 
 | Inner function | Purpose |
 |----------------|---------|
 | `_ffmpeg_bin()` | Returns imageio-ffmpeg binary path |
-| `_base_ydl_opts()` | Base yt-dlp options (ffmpeg + JS runtime) |
-| `_fetch(url)` | Extract video info → quality dropdown |
-| `_download(url, selected, quality_map, save_dir)` | Streaming download with progress bar |
+| `_base_ydl_opts()` | Base yt-dlp options: socket_timeout 30s, concurrent fragments 4, browser UA, Facebook DASH preference |
+| `_fetch(url)` | Extract video info → quality dropdown (60s thread timeout) |
+| `_download(url, selected, quality_map, save_dir)` | Streaming download with progress bar + 90s stall detection |
 | `_pause_toggle()` | Toggle pause state |
 | `_stop_download()` | Stop download |
 
@@ -324,7 +324,7 @@ resetting        → [Resetting… spinner]
 | `devicetorch` | Cross-platform GPU detection |
 | `ffmpeg-python` + `imageio-ffmpeg` | ffmpeg bindings + portable binary |
 | `pydantic == 2.10.6` | Pinned for Gradio compatibility |
-| `yt-dlp` | Video download from 1000+ sites |
+| `yt-dlp` (auto-updated on Start) | Video download from 1000+ sites (Facebook, YouTube, etc.) |
 
 ---
 

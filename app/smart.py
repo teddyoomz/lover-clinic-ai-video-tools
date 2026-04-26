@@ -772,6 +772,19 @@ class SmartSetup:
         except Exception as e:
             self.p(c(DIM, f"   Auto-update check skipped: {e}"))
 
+        # ── 0b. Keep yt-dlp up to date (Facebook/etc change APIs often) ──
+        try:
+            r = self._run(
+                ["uv", "pip", "install", "--upgrade", "yt-dlp", "--quiet"],
+                capture=True, timeout=30,
+            )
+            if r and r.returncode == 0:
+                self.p(c(G, "✅ yt-dlp up to date"))
+            else:
+                self.p(c(DIM, "   yt-dlp update skipped"))
+        except Exception:
+            pass
+
         # ── 1. Deps hash ──────────────────────────────────────
         if not self._deps_current() or not self._gradio_ok():
             self.p("📦 Deps missing or changed — installing...")

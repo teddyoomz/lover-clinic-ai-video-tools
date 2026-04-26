@@ -2990,6 +2990,18 @@ def _build_download_tab(cfg: dict):
             "socket_timeout": 30,
             "retries": 3,
             "fragment_retries": 5,
+            # Download multiple HLS/DASH fragments in parallel — faster & reduces
+            # chance of stalling on a single slow CDN connection (helps Facebook)
+            "concurrent_fragment_downloads": 4,
+            # Browser-like User-Agent — some CDNs (Facebook, Instagram) reject
+            # the default python-requests UA or throttle non-browser clients
+            "http_headers": {
+                "User-Agent": (
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 (KHTML, like Gecko) "
+                    "Chrome/131.0.0.0 Safari/537.36"
+                ),
+            },
         }
         ffmpeg = _ffmpeg_bin()
         if ffmpeg:
@@ -2999,7 +3011,9 @@ def _build_download_tab(cfg: dict):
         # a JS runtime causes yt-dlp to spam warnings and hang while retrying.
         # android + android_vr: no JS needed, returns full format range 144p–4K.
         opts["extractor_args"] = {
-            "youtube": {"player_client": ["android", "android_vr"]}
+            "youtube": {"player_client": ["android", "android_vr"]},
+            # Facebook: prefer dash (progressive streams can stall mid-download)
+            "facebook": {"prefer_dash": ["true"]},
         }
         return opts
 
@@ -3206,8 +3220,24 @@ def _build_download_tab(cfg: dict):
         threading.Thread(target=_run, daemon=True).start()
 
         try:
+            _last_line = ""
+            _stall_t = time.time()
+            _STALL_LIMIT = 90  # seconds with zero progress change → force stop
+
             while not state["done"]:
-                yield state["line"], _noop, _noop, _noop, _btn_dl_on, _vis_on, _vis_on
+                cur_line = state["line"]
+                if cur_line != _last_line:
+                    _last_line = cur_line
+                    _stall_t = time.time()
+                elif time.time() - _stall_t > _STALL_LIMIT:
+                    # No progress change for 90s — download is stalled
+                    state["stop"] = True
+                    state["error"] = "ดาวน์โหลดค้าง (ไม่มี progress เกิน 90 วินาที) — กรุณาลองใหม่"
+                    state["done"] = True
+                    logger.warning(f"Download stall detected after {_STALL_LIMIT}s — force stop")
+                    break
+
+                yield cur_line, _noop, _noop, _noop, _btn_dl_on, _vis_on, _vis_on
                 time.sleep(0.4)
 
             if state["stopped_by_user"]:
